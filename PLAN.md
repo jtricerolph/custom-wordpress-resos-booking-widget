@@ -394,6 +394,121 @@ Booking note includes any additional context (group info, joined-by names, cover
 
 ---
 
+## URL Parameter Pre-population
+
+All widget form fields accept pre-population via URL GET parameters. This supports links from emails, CRM, or other systems that want to deep-link into the booking flow with values pre-filled.
+
+| URL Parameter | Pre-fills | Example |
+|---|---|---|
+| `date` | Calendar date | `?date=2026-02-14` |
+| `people` | Party size | `?people=4` |
+| `name` | Guest name field | `?name=John+Smith` |
+| `email` | Guest email field | `?email=john@example.com` |
+| `phone` | Guest phone field | `?phone=07700900123` |
+| `bid` | Resident booking ID (triggers Flow B) | `?bid=12345&gid=67890` |
+| `gid` | Resident guest ID (second factor for Flow B) | (used with `bid`) |
+
+When `date` and/or `people` are provided, the widget auto-advances the progressive reveal to the appropriate step. When `bid` + `gid` are provided, Flow B is triggered immediately.
+
+---
+
+## Booking Creation Payload
+
+When creating a resOS booking, include these notification fields so resOS sends the guest a confirmation email (which includes a manage/cancel link):
+
+```json
+{
+  "date": "2026-02-14",
+  "time": "19:00",
+  "people": 2,
+  "guest": {
+    "name": "John Smith",
+    "email": "john@example.com",
+    "phone": "+447700900123",
+    "notificationEmail": true
+  },
+  "sendNotification": true,
+  "source": "website",
+  "notes": "...",
+  "customFields": { ... }
+}
+```
+
+Key fields:
+- `sendNotification: true` -- tells resOS to send the confirmation email
+- `guest.notificationEmail: true` -- confirms the guest wants email notifications
+- The confirmation email from resOS includes a link for the guest to manage/cancel their booking
+
+---
+
+## Confirmation Screen
+
+After a successful booking, the confirmation screen shows:
+
+```
++-- Booking Confirmed ------------------------------------+
+|  Dinner, Friday 14 February at 7:00 PM for 2 guests    |
+|  Booking reference: #12345                              |
+|                                                         |
+|  A confirmation email has been sent to john@example.com |
+|                                                         |
+|  To modify or cancel your booking, use the link in      |
+|  your confirmation email, or call us on 01451 830297.   |
++---------------------------------------------------------+
+```
+
+No in-widget cancellation/modification -- handled entirely via the resOS confirmation email link or by phone.
+
+---
+
+## Error Handling
+
+Different error states depending on when the failure occurs:
+
+### Pre-flow failure (opening hours / initial data load fails)
+```
+"We're experiencing technical issues with our booking system.
+ Please call us on {phone} to make a reservation."
+```
+No retry button -- if the initial API call fails, the system may be down.
+
+### Mid-flow failure (time slot load, booking submission fails)
+```
+"Something went wrong. Please try again, or call us on
+ {phone} and we'll be happy to assist."
+[Try again]
+```
+Retry button re-attempts the failed API call. If it fails again, same message persists with phone fallback.
+
+### NewBook failure (resident verification / staying list)
+NewBook API being down should NOT block the booking flow. The widget degrades gracefully:
+- Staying list prefetch fails silently -- "Are you staying?" still appears but matching won't work
+- Resident link verification fails: "We couldn't verify your booking link. You can continue booking as a regular guest."
+- Falls back to Flow A with manual booking reference entry if guest says they're staying
+
+### Turnstile failure
+```
+"Please complete the verification to submit your booking."
+```
+Turnstile widget re-renders. If persistent failure, phone fallback message.
+
+---
+
+## Opening Hours & Time Slot Filtering
+
+The `bookingFlow/times` endpoint returns available times **per opening hour period**. The `openingHourId` parameter filters which period to fetch times for.
+
+**Flow:**
+1. `GET /rbw/v1/opening-hours?date=` returns all periods for the date (each with `id`, `name`, `from`, `to`, special event info)
+2. Closeout parser checks each period's name for `##RESIDENTONLY` and `%%message%%` markers
+3. Frontend renders accordion with one section per period
+4. When a period accordion is expanded, `POST /rbw/v1/available-times` is called with `openingHourId` for that period
+5. Times returned are displayed as button grid within the accordion section
+
+This means time slots are lazy-loaded per period (not all at once), keeping API calls minimal. The default-expanded period (latest with availability, typically Dinner) loads its times immediately.
+
+---
+
 ## Phase 1: MVP -- Core Booking Widget (Flow A basics)
 
 ### Backend (PHP)

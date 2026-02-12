@@ -8,12 +8,13 @@ The current resOS booking widget on hotelnumberfour.com/restaurant is a basic if
 - WordPress plugin, fully self-contained (NO dependency on BMA, newbook-api-cache, or any other plugins)
 - Direct API calls to resOS + NewBook from the plugin's own PHP backend
 - No caching layer - single-date/booking lookups are fast enough
-- Progressive reveal single-page flow (date → covers → times → details → confirm)
+- Progressive reveal single-page flow (date -> covers -> times -> details -> confirm)
 - Resident links use `bookings_get` with booking ID for instant verification
 - Resident flow shows multi-day stay planner (all nights at once)
 - Closeout markers in resOS names: `##RESIDENTONLY` + `%%message%%`
 - Duplicate booking detection by email/phone, no PII exposed to frontend
 - NewBook custom field write-back for "no table needed" status
+- Staying list prefetched on date selection for instant resident matching
 
 ---
 
@@ -32,32 +33,39 @@ The current resOS booking widget on hotelnumberfour.com/restaurant is a basic if
         |-- class-rbw-newbook-client.php     (direct NewBook API calls)
         |-- class-rbw-closeout-parser.php    (## and %% marker parsing)
         |-- class-rbw-duplicate-checker.php  (email/phone dupe detection via resOS)
+        |-- class-rbw-resident-matcher.php   (staying list matching + group detection)
         |-- class-rbw-rate-limiter.php       (IP-based throttling)
         |-- class-rbw-admin.php              (settings page)
 ```
 
 ---
 
-## Two Distinct Booking Flows
+## Three Entry Points Into Booking
 
 ### Flow A: Regular Guest (public, no link)
 Single page, progressive reveal. Each section appears as the previous one is completed.
 
 ```
-[Date Calendar] ← pick a date
-      ↓ reveals
-[Party Size: 1-12+] ← "Larger party? Call us"
-      ↓ reveals
+[Date Calendar] <- pick a date
+      | (background: prefetch staying list for this date, cache in WP transient)
+      v reveals
+[Party Size: 1-12+] <- "Larger party? Call us"
+      v reveals
 [Service Period Tabs: Lunch | Dinner]
-  [Time Slot Grid] ← pick a time
-  [ClosedMessage if unavailable] ← parsed from closeout markers
-      ↓ reveals
-[Guest Details: name, email, phone, dietary, notes]
-  [Resident detection — TBD Phase 3]
-      ↓ reveals
+  [Time Slot Grid] <- pick a time
+  [ClosedMessage if unavailable] <- parsed from closeout markers
+      v reveals
+[Guest Details: name*, email*, phone (optional), dietary, notes]
+  ["Are you staying at the hotel?" Yes / No]
+      v if Yes: instant match against cached staying list
+  [Resident detection result — see Phase 3]
+      v reveals
 [Summary + Turnstile + Confirm]
   [Duplicate warning if email/phone matches existing booking]
-  [Success screen]
+      v
+[Confirmation Page]
+  [Booking summary]
+  [If verified resident + multi-night: Stay planner for remaining nights]
 ```
 
 ### Flow B: Verified Resident (via personalised link)
@@ -67,16 +75,19 @@ Multi-day stay planner. Since we know their stay dates and guest details, show a
 [Welcome Banner: "Welcome John, Room 4 | 3 nights: Feb 12-14"]
 
 [Stay Planner Grid - one row per night]
-  Feb 12 (Thu) | [Lunch slots] [Dinner slots] [No table needed ✓]
-  Feb 13 (Fri) | [Lunch slots] [Dinner slots] [No table needed ✓]
-  Feb 14 (Sat) | [Lunch slots] [Dinner slots] [No table needed ✓]
+  Feb 12 (Thu) | [Lunch slots] [Dinner slots] [No table needed]
+  Feb 13 (Fri) | [Lunch slots] [Dinner slots] [No table needed]
+  Feb 14 (Sat) | [Lunch slots] [Dinner slots] [No table needed]
 
-[Dietary requirements + special requests] ← once, applies to all
+[Dietary requirements + special requests] <- once, applies to all
 [Summary of all selected bookings + Confirm All]
 [Success: "3 bookings confirmed"]
 ```
 
 Each night row shows available time slots inline. Guest taps a time to select it, or ticks "No table needed" to mark that night as handled. Bookings are created in batch on confirm.
+
+### Flow A -> B Transition (matched resident during regular flow)
+When a regular guest is identified as a hotel resident during Flow A (Phase 3), after their first booking confirms, the confirmation page includes a stay planner for remaining nights.
 
 ---
 
@@ -91,18 +102,20 @@ Auth: `Basic base64(api_key + ':')`
 | `/v1/openingHours?showDeleted=false&onlySpecial=false` | GET | Service periods + special events |
 | `/v1/customFields` | GET | Custom field definitions |
 | `/v1/bookings` | POST | Create booking |
-| `/v1/bookings?fromDateTime=&toDateTime=` | GET | Fetch bookings (duplicate check) |
+| `/v1/bookings?fromDateTime=&toDateTime=` | GET | Fetch bookings (duplicate check + group table check) |
 
 ### NewBook API
 Auth: `Basic base64(username + ':' + password)`, `api_key` + `region` in body
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/rest/bookings_get` | POST | Get single booking by ID (resident verification) |
-| `/rest/bookings_list` (list_type: staying) | POST | Get staying guests for a date (Phase 3 TBD) |
+| `/rest/bookings_get` | POST | Get single booking by ID (resident verification via link) |
+| `/rest/bookings_list` (list_type: staying) | POST | Get staying guests for a date (resident matching) |
 | `/rest/instance_custom_fields_set` (TBC) | POST | Write "no table needed" custom field |
 
-`bookings_get` returns: booking dates (`period_from`/`period_to`), guest details (`guests[0].firstname`, `lastname`, `contact_details[]`), room (`site_name`), `booking_id`, guest IDs.
+`bookings_get` returns: booking dates (`period_from`/`period_to`), guest details (`guests[0].firstname`, `lastname`, `contact_details[]`), room (`site_name`), `booking_id`, `bookings_group_id`, guest IDs.
+
+`bookings_list` (staying) returns: all bookings with guests staying on a given date, including `booking_id`, `bookings_group_id`, `booking_reference_id`, guest details, `travel_agent_name`.
 
 ---
 
@@ -110,10 +123,10 @@ Auth: `Basic base64(username + ':' + password)`, `api_key` + `region` in body
 
 Restaurant staff name closeouts/special events in resOS normally. The widget parses the `name` field:
 
-**`##RESIDENTONLY`** — access control
+**`##RESIDENTONLY`** -- access control
 - Non-residents blocked; verified residents call `bookingFlow/times` with `onlyBookableOnline: false` to bypass
 
-**`%%message%%`** — guest-facing text between `%%` delimiters
+**`%%message%%`** -- guest-facing text between `%%` delimiters
 - If no `%%` markers: default "Please call [phone] to enquire"
 
 **Examples of closeout names set in resOS:**
@@ -143,8 +156,196 @@ https://hotelnumberfour.com/restaurant/?bid={booking_id}&gid={guest_id}
 6. Frontend enters Flow B (multi-day stay planner)
 
 Additional URL params for alternative verification:
-- `surname`, `email`, `phone` — alternative second factor if `gid` not available
-- `people` — pre-set party size
+- `surname`, `email`, `phone` -- alternative second factor if `gid` not available
+- `people` -- pre-set party size
+
+---
+
+## Resident Matching (Flow A - during regular booking)
+
+### Staying List Prefetch
+
+When a guest selects a date in Flow A, the backend prefetches the NewBook staying list for that date and caches it in a WP transient (~5 min TTL). This happens in the background so by the time the guest reaches the details form, the data is ready for instant matching. All staying data remains server-side -- no PII is ever sent to the frontend.
+
+### Matching Flow
+
+After the guest fills in name, email, and optionally phone, they see "Are you staying at the hotel?" If they click Yes, the backend matches their details against the cached staying list.
+
+**Match endpoint:** `POST /rbw/v1/check-resident`
+- Input: `{ date, name, email, phone }`
+- Backend: compare against cached staying list
+- Output: `{ match_tier, booking_id, booking_reference_id, stay_dates, room, group_info, phone_on_file }` (no guest PII from NewBook returned to frontend)
+
+### Match Tiers
+
+**Tier 1: Auto-match (email + last name)**
+Email matches (case-insensitive) AND last name matches (name field split by last space, last token compared case-insensitive) a staying guest.
+
+Result:
+```
+"It looks like you're staying at the hotel! Booking #12345"
+[Booking Reference: 12345] <- prefilled, editable
+
+If multi-night stay + time already selected:
+  "Would you like a similar time on other nights of your stay?"
+  [ ] Feb 13 (Fri)  Dinner 7:00 PM  x2 guests
+  [ ] Feb 14 (Sat)  Dinner 7:00 PM  x2 guests
+```
+
+**Tier 2: Partial match -- phone verification (name matches, email doesn't)**
+Last name matches a staying guest but email doesn't match (e.g., booking.com forwarded email, partner booked). The matched NewBook booking has a phone number on file.
+
+Result:
+```
+"Not sure about your booking number? Add your mobile and we can
+ try to verify and find it for you"
+[Mobile: ________]
+    v on submit, normalised phone matches
+"Found it! Booking #12345"
+[Booking Reference: 12345] <- prefilled
+```
+
+Phone normalised to last 9 digits for comparison (same pattern as Chrome extension).
+
+Note: phone verification prompt only shown when the matched NewBook booking actually has a phone number to compare against. Backend returns `{ phone_on_file: true }` (boolean, not the actual number).
+
+**Tier 3: No match -- manual entry**
+No name/email/phone combination matches any staying guest.
+
+Result:
+```
+[Booking Reference: ________]
+```
+
+Guest enters their reference manually. Backend checks against both `booking_id` AND `booking_reference_id` on all staying bookings for the date. This handles OTA references (e.g., Booking.com confirmation numbers).
+
+**If OTA reference matches:**
+```
+Modal: "We found your booking from {travel_agent_name}. Our reference
+for your booking is {booking_id}. We've updated it for you."
+[Booking Reference: 12345] <- updated to internal ID
+```
+
+**If no reference matches:**
+```
+"We couldn't verify your stay. Please check your booking confirmation
+email for your reference number, or ask reception."
+[Continue booking] <- proceeds as unverified hotel guest
+```
+
+Even unverified: resOS booking gets Hotel Guest = Yes + whatever reference they entered. Reception can clean up via Chrome extension.
+
+### Matching Logic Details
+
+**Name parsing:**
+- Guest enters single name field (e.g., "John Smith")
+- Split by last space: first = "John", last = "Smith"
+- Compare last name case-insensitive against NewBook `guests[].lastname`
+- First name used as tiebreaker if multiple last name matches
+
+**Email comparison:**
+- Both lowercased, exact match
+
+**Phone normalisation:**
+- Strip all non-digits
+- Take last 9 digits
+- Compare (handles +44, 0044, 07xxx variations)
+
+---
+
+## Covers vs Room Occupancy
+
+When a resident is matched (any tier), the backend knows their room occupancy (number of guests on the NewBook booking). If the selected party size exceeds their room occupancy:
+
+```
+"You've selected {covers} guests, but your room booking is for {occupancy}.
+ Will others be joining you?"
+
+  ( ) Non-residents joining us
+      -> adds booking note: "Being joined by non-residents"
+
+  ( ) Other hotel guests joining our table
+      -> "Let us know what name they booked under so we can note
+          they're joining your table"
+      [Name(s): ________]
+      -> adds booking note: "Joined by hotel guests: {names}"
+```
+
+---
+
+## Group Booking Detection
+
+When a matched resident's NewBook booking has a `bookings_group_id`, additional logic runs. Group members are identified from the already-cached staying list (filter by same `bookings_group_id` -- no extra API calls).
+
+### Checking for Existing Group Table Bookings
+
+The resOS bookings for the date (already fetched for duplicate checking) are checked for group members:
+
+1. Get all NewBook booking IDs in the group from cached staying list
+2. Check each resOS booking's **Booking# custom field** for matches against those IDs
+3. This tells us which group members already have tables, and how many covers they booked
+
+### Group Scenarios
+
+**No existing group table bookings:**
+
+*Covers > room occupancy:*
+> "You're part of a group. Looks like you're booking for the group -- should we note this booking is for your group?"
+> [Yes, this is for our group] -> booking note: "Group booking"
+> [No, just for us] -> proceed normally
+
+*Covers = room occupancy:*
+> "You're part of a group but have only booked for {covers}. Are the other guests booking separately, or would you like to dine together?"
+> [They'll book separately] -> proceed normally
+> [We'd like to dine together] -> adjust covers prompt
+
+**Other group members already have tables:**
+
+*Their existing booking has more covers than their room occupancy (someone booked for the whole group):*
+> "There looks like there might be a booking for your group already -- perhaps someone else has already booked. We can't show details of that booking. You're welcome to continue booking, but feel free to check with the other group members or give us a call if you need assistance on {phone}."
+> [Continue booking anyway] | [Cancel]
+
+*Their existing bookings only match their own room occupancy (individual bookings):*
+> "It looks like other members of your group already have bookings. If you're dining separately, feel free to continue. If you'd like us to sort a table for the whole group, it would be easiest to give us a call on {phone}."
+> [Continue booking] | [Cancel]
+
+### Group Handling Output
+
+The widget does **not** update the GROUP/EXCLUDE custom field or modify any existing bookings. All group context is added as **booking notes/comments** on the newly created resOS booking. Staff review these notes and handle group linking manually via the Chrome extension.
+
+Example booking notes:
+- "Guest confirmed booking is for their group"
+- "Guest says other group members booking separately"
+- "Being joined by non-residents"
+- "Joined by hotel guests: Mr & Mrs Jones"
+- "Part of group - other members may already have tables booked"
+
+### Privacy
+
+Group detection never reveals other guests' names, booking details, or table times. Messages are intentionally vague ("someone in your group", "other members") with phone fallback for complex coordination.
+
+---
+
+## Post-Booking Stay Planner Transition
+
+After a verified resident's first booking confirms via Flow A, the confirmation page shows:
+
+```
++-- Booking Confirmed ---------------------------------+
+|  Dinner, Feb 12 at 7:00 PM for 2 guests             |
+|  Booking #12345                                      |
++------------------------------------------------------+
+
++-- Your Stay ------------------------------------------+
+|  Feb 12 (Thu) | Dinner 7:00 PM  confirmed             |
+|  Feb 13 (Fri) | [Lunch slots] [Dinner slots] [No table needed] |
+|  Feb 14 (Sat) | [Lunch slots] [Dinner slots] [No table needed] |
+|                                                        |
+|  [Confirm remaining nights]                            |
++--------------------------------------------------------+
+```
+
+The just-booked night shows as confirmed. Remaining nights show available time slots or "No table needed" checkbox. Guest can book additional nights or mark them as not needed, all in one action.
 
 ---
 
@@ -166,7 +367,7 @@ Phone normalised to last 9 digits for comparison.
 
 ## "No Table Needed" Feature
 
-In the resident multi-day view (Flow B), guests can mark nights where they don't want a restaurant table.
+In the resident multi-day view (Flow B or post-booking stay planner), guests can mark nights where they don't want a restaurant table.
 
 - Backend calls NewBook API to update a custom field on the booking
 - Custom field in NewBook: e.g., "Restaurant Status"
@@ -175,99 +376,201 @@ In the resident multi-day view (Flow B), guests can mark nights where they don't
 
 ---
 
-## Phase 1: MVP — Core Booking Widget (Flow A)
+## resOS Custom Fields on Created Bookings
+
+When the widget creates a resOS booking for a verified (or self-declared) hotel resident:
+
+| Custom Field | Value | Notes |
+|---|---|---|
+| Hotel Guest | Yes | Multiple choice field |
+| Booking # | {NewBook booking_id} | Text field, the internal booking ID |
+| Source | `website-resident` or `website` | Distinguishes widget bookings from other sources |
+
+Booking note includes any additional context (group info, joined-by names, covers mismatch responses, etc.).
+
+**What the widget does NOT write:**
+- GROUP/EXCLUDE field -- staff handle group linking via Chrome extension after reviewing booking notes
+- No modifications to existing resOS bookings (other guests' tables, covers, etc.)
+
+---
+
+## Phase 1: MVP -- Core Booking Widget (Flow A basics)
 
 ### Backend (PHP)
 
-**`restaurant-booking-widget.php`** — Plugin bootstrap
+**`restaurant-booking-widget.php`** -- Plugin bootstrap
 - Shortcode `[restaurant_booking]`, autoloader, script enqueue
 - `wp_localize_script()` passes: REST URL, nonce, phone number, turnstile key
 
-**`includes/class-rbw-resos-client.php`** — Direct resOS API client
+**`includes/class-rbw-resos-client.php`** -- Direct resOS API client
 - Own key: `get_option('rbw_resos_api_key')`
 - Methods: `get_available_times()`, `get_opening_hours()`, `get_custom_fields()`, `get_bookings_for_date()`, `create_booking()`
 - Phone formatting: strip leading 0, add +44 prefix
 
-**`includes/class-rbw-rest-controller.php`** — Public REST endpoints
-- `GET /rbw/v1/opening-hours?date=` — periods + special events
-- `POST /rbw/v1/available-times` — time slots
-- `GET /rbw/v1/dietary-choices` — dietary options from custom fields
-- `POST /rbw/v1/create-booking` — submit booking (Turnstile + duplicate check)
+**`includes/class-rbw-rest-controller.php`** -- Public REST endpoints
+- `GET /rbw/v1/opening-hours?date=` -- periods + special events for date
+- `POST /rbw/v1/available-times` -- time slots (date, people, openingHourId)
+- `GET /rbw/v1/dietary-choices` -- dietary options from custom fields
+- `POST /rbw/v1/create-booking` -- submit booking (Turnstile + duplicate check)
 - All rate-limited per IP
 
-**`includes/class-rbw-closeout-parser.php`** — `##` and `%%` marker parsing
+**`includes/class-rbw-closeout-parser.php`** -- `##` and `%%` marker parsing
 
-**`includes/class-rbw-duplicate-checker.php`** — Email/phone dupe check
+**`includes/class-rbw-duplicate-checker.php`** -- Email/phone dupe check
 
-**`includes/class-rbw-rate-limiter.php`** — WP transient-based IP throttling
+**`includes/class-rbw-rate-limiter.php`** -- WP transient-based IP throttling
 
-**`includes/class-rbw-admin.php`** — Settings page
+**`includes/class-rbw-admin.php`** -- Settings page (Settings > Booking Widget)
 - ResOS API key + test connection
-- NewBook credentials + test connection
-- Restaurant phone, Turnstile keys, default closeout message
+- NewBook credentials (username, password, API key, region) + test connection
+- Restaurant phone number
+- Turnstile site key + secret
+- Default closeout message template
 
 ### Frontend (React + TypeScript + Vite)
 
-Progressive reveal single-page:
-- `App.tsx` — state, progressive reveal logic
-- `DatePicker.tsx` — calendar grid (next 30 days)
-- `PartySize.tsx` — covers selector
-- `ServicePeriods.tsx` — period tabs
-- `TimeSlots.tsx` — time button grid
-- `ClosedMessage.tsx` — closeout/full messaging
-- `GuestForm.tsx` — name, email, phone, dietary, notes
-- `DuplicateWarning.tsx` — "you already have a booking" prompt
-- `BookingConfirmation.tsx` — success screen
-- `useBookingApi.ts`, `useBookingFlow.ts` — hooks
-- `theme.ts`, `validation.ts` — utils
+Progressive reveal single-page widget:
 
-Build: `npm run build` → `frontend/dist/` (committed).
+**Components:**
+- `App.tsx` -- main state, progressive reveal logic
+- `DatePicker.tsx` -- calendar grid (next 30 days)
+- `PartySize.tsx` -- covers selector (1-12, "Larger? Call us")
+- `ServicePeriods.tsx` -- tab bar per service period
+- `TimeSlots.tsx` -- time button grid within a period
+- `ClosedMessage.tsx` -- closeout/full messaging with parsed `%%text%%`
+- `GuestForm.tsx` -- name, email, phone, dietary checkboxes, notes
+- `DuplicateWarning.tsx` -- "you already have a booking" prompt
+- `BookingConfirmation.tsx` -- success screen
+
+**Hooks:**
+- `useBookingApi.ts` -- all `/rbw/v1/*` calls
+- `useBookingFlow.ts` -- state machine (which sections revealed, current selections)
+
+**Utils:**
+- `theme.ts` -- hotel brand (Raleway font, warm tones)
+- `validation.ts` -- phone/email validation, phone formatting
+
+Build: `npm run build` -> `frontend/dist/` (committed). Shortcode enqueues from `dist/`.
 
 ---
 
 ## Phase 2: Resident Links + Multi-Day Stay Planner (Flow B)
 
-### Backend:
-**`includes/class-rbw-newbook-client.php`** — Direct NewBook API client
-- `get_booking($booking_id)` — `bookings_get`
-- `get_staying_guests($date)` — `bookings_list` (staying)
-- `update_custom_field($booking_id, $field, $value)` — restaurant status write-back
+### Backend additions:
 
-**`includes/class-rbw-resident-lookup.php`** — Verification logic
-- `verify_from_link($bid, $gid, ...)` — `bookings_get` + verify second factor
+**`includes/class-rbw-newbook-client.php`** -- Direct NewBook API client
+- Own credentials: `get_option('rbw_newbook_*')`
+- `get_booking($booking_id)` -- calls `bookings_get`, returns full booking data
+- `get_staying_guests($date)` -- calls `bookings_list` (list_type: staying)
+- `update_custom_field($booking_id, $field, $value)` -- write restaurant status
+
+**`includes/class-rbw-resident-lookup.php`** -- Link verification logic
+- `verify_from_link($bid, $gid, $surname, $email, $phone)` -- calls `bookings_get`, verifies second factor
 - Returns: `{ verified, guest_name, room, check_in, check_out, nights[], booking_id }`
 
-**New endpoints:**
-- `POST /rbw/v1/verify-resident`
-- `POST /rbw/v1/available-times-multi` — batch time slots for stay planner
-- `POST /rbw/v1/create-bookings-batch` — batch create + no-table flags
+**New REST endpoints:**
+- `POST /rbw/v1/verify-resident` -- verify URL params, return stay info
+- `POST /rbw/v1/available-times-multi` -- time slots for multiple dates at once
+- `POST /rbw/v1/create-bookings-batch` -- batch create + no-table flags
+- `POST /rbw/v1/mark-no-table` -- mark specific dates as "not required" in NewBook
 
-### Frontend:
-- `useUrlParams.ts` — parse URL params, auto-verify
-- `StayPlanner.tsx` — multi-day grid (one row per night)
-- `ResidentBanner.tsx` — welcome header with room/dates
-- `BookingBatchConfirmation.tsx` — multi-booking summary
+### Frontend additions:
+
+- `useUrlParams.ts` -- parse URL GET vars on mount, auto-verify if `bid` + `gid` present
+- `StayPlanner.tsx` -- multi-day grid (one row per night of stay)
+- `ResidentBanner.tsx` -- "Welcome [Name], Room [X] | [N] nights: [dates]"
+- `BookingBatchConfirmation.tsx` -- multi-booking summary with Confirm All
 
 ---
 
-## Phase 3: Non-Link Resident Detection — TBD
+## Phase 3: Non-Link Resident Detection + Group Handling
 
-Approach for detecting hotel residents who book via the regular flow (without using a personalised link) is to be determined. Options under consideration:
-- Surname check against NewBook staying list
-- Optional "hotel booking reference" field in guest form
-- Combination approach
-- Or rely solely on link-based verification (Phase 2) with staff manual matching via Chrome extension as fallback
+### Staying List Prefetch
 
-**This phase will be designed in a separate planning session.**
+**Backend:**
+- When `GET /rbw/v1/opening-hours?date=` is called (already happens on date selection), the backend also prefetches the NewBook staying list for that date
+- Cached in WP transient with ~5 min TTL, keyed by date
+- All staying data stays server-side, never returned to frontend at this stage
+
+**New REST endpoint:**
+- `POST /rbw/v1/check-resident` -- accepts `{ date, name, email, phone }`, returns match result
+
+### Backend: class-rbw-resident-matcher.php
+
+**`match_guest($date, $name, $email, $phone)`**
+1. Get cached staying list for date (or fetch if expired)
+2. Parse name: split by last space -> first_name, last_name
+3. Run match tiers:
+   - Tier 1: email (lowercased) + last_name (case-insensitive) match
+   - Tier 2: last_name matches but email doesn't, check if matched booking has phone on file
+   - Tier 3: no match
+4. Return: `{ match_tier, booking_id, booking_reference_id, check_in, check_out, nights[], room, occupancy, group_id, phone_on_file, group_info }`
+
+**`verify_phone($date, $name, $phone)`**
+- Called when guest provides phone after Tier 2 partial match
+- Normalise to last 9 digits, compare against matched booking's phone
+- Return: `{ verified, booking_id }` or `{ verified: false }`
+
+**`verify_reference($date, $reference)`**
+- Called for manual booking# entry (Tier 3)
+- Check `$reference` against both `booking_id` AND `booking_reference_id` on all staying bookings
+- If OTA match: return `{ verified, booking_id, travel_agent_name }`
+
+**`check_group($date, $booking_id, $group_id, $covers)`**
+- Get all staying bookings with same `bookings_group_id`
+- Get resOS bookings for date, check Booking# custom field for any group member IDs
+- Return: `{ is_group, group_size, group_occupancy_total, existing_tables[] }`
+  - `existing_tables[].covers` and `existing_tables[].occupancy` for the group member who booked
+
+### Frontend: HotelGuestSection Component
+
+Appears in GuestForm after name/email/phone fields.
+
+**States:**
+1. **Initial:** "Are you staying at the hotel?" [Yes] [No]
+2. **Checking:** spinner while matching
+3. **Auto-matched (Tier 1):** "It looks like you're staying at the hotel! Booking #{id}" + prefilled ref + multi-night upsell if applicable
+4. **Phone prompt (Tier 2):** "Not sure about your booking number? Add your mobile and we can try to verify and find it for you" + phone input
+5. **Phone verified:** same as auto-matched
+6. **Manual entry (Tier 3):** booking reference field
+7. **OTA detected:** modal with travel agent name and internal booking ID
+8. **Unverified:** help message + continue option
+9. **Covers mismatch:** "You've selected X guests but your booking is for Y" + options
+10. **Group detected:** appropriate group message based on scenario
+
+### Frontend: MultiNightUpsell Component
+
+Shown inline when a matched resident has a multi-night stay and a time is already selected:
+
+```
+"Would you like a similar time on other nights of your stay?"
+[ ] Feb 13 (Fri)  Dinner 7:00 PM  x2 guests
+[ ] Feb 14 (Sat)  Dinner 7:00 PM  x2 guests
+```
+
+Checked nights get created as additional bookings in the same submit. Unchecked nights can be addressed on the post-booking stay planner.
+
+### Frontend: GroupBookingPrompt Component
+
+Shown when group_id detected:
+- Covers mismatch messages
+- Existing group table warnings
+- Phone number fallback for complex coordination
+
+### Post-Booking Confirmation Enhancement
+
+`BookingConfirmation.tsx` extended: if verified resident with remaining stay nights, show inline `StayPlanner` below the booking summary for remaining nights.
 
 ---
 
 ## Phase 4: Closeout Messaging + Polish
 
-- `ClosedMessage.tsx` enhanced: parsed `%%message%%`, default fallbacks
-- `##RESIDENTONLY` hint for non-residents
-- Loading skeletons, error states, retry
-- Animations, accessibility, mobile-first responsive
+- `ClosedMessage.tsx` enhanced: parsed `%%message%%`, default fallbacks per scenario
+- `##RESIDENTONLY` hint for non-residents: "Hotel guests: use the link in your confirmation email"
+- Loading skeletons, error states, retry logic
+- Smooth section reveal animations (CSS transitions)
+- Accessibility: keyboard nav, ARIA labels, focus management
+- Mobile-first responsive (calendar, time grids, stay planner all adapt)
 
 ---
 
@@ -281,6 +584,7 @@ restaurant-booking-widget/
 |   |-- class-rbw-resos-client.php
 |   |-- class-rbw-newbook-client.php
 |   |-- class-rbw-resident-lookup.php
+|   |-- class-rbw-resident-matcher.php
 |   |-- class-rbw-duplicate-checker.php
 |   |-- class-rbw-closeout-parser.php
 |   |-- class-rbw-rate-limiter.php
@@ -298,10 +602,12 @@ restaurant-booking-widget/
 |   |   |   |-- ServicePeriods.tsx
 |   |   |   |-- TimeSlots.tsx
 |   |   |   |-- GuestForm.tsx
+|   |   |   |-- HotelGuestSection.tsx
+|   |   |   |-- MultiNightUpsell.tsx
+|   |   |   |-- GroupBookingPrompt.tsx
 |   |   |   |-- ClosedMessage.tsx
 |   |   |   |-- DuplicateWarning.tsx
 |   |   |   |-- ResidentBanner.tsx
-|   |   |   |-- ResidentPrompt.tsx
 |   |   |   |-- StayPlanner.tsx
 |   |   |   |-- BookingConfirmation.tsx
 |   |   |   |-- BookingBatchConfirmation.tsx
@@ -316,3 +622,24 @@ restaurant-booking-widget/
 |   |-- dist/
 |-- readme.txt
 ```
+
+---
+
+## Code References
+
+| What | Source File | Lines |
+|---|---|---|
+| ResOS API client (all endpoints) | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 124-282 |
+| Booking creation payload | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 1506-1537 |
+| NewBook API client (staying/get) | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 87-121 |
+| NewBook `bookings_get` usage | `booking-match-api/includes/class-bma-newbook-search.php` | 20-38 |
+| Phone normalisation (last 9 digits) | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 782-787 |
+| Surname extraction | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 774-780 |
+| Guest matching logic | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 656-747 |
+| GROUP/EXCLUDE field parsing | `resos-resident-booking-extention/sidepanel/sidepanel.js` | 596-617 |
+| GROUP/EXCLUDE PHP parsing | `booking-match-api/includes/class-bma-matcher.php` | 1008-1050 |
+| Booking# field matching (PHP) | `booking-match-api/includes/class-bma-matcher.php` | 240-255 |
+| PHP booking creation + custom fields | `booking-match-api/includes/class-bma-booking-actions.php` | 638-918 |
+| PHP phone formatting | `booking-match-api/includes/class-bma-booking-actions.php` | `format_phone_for_resos()` |
+| PHP special events from openingHours | `booking-match-api/includes/class-bma-booking-actions.php` | 1249-1306 |
+| PHP opening hours fetch | `booking-match-api/includes/class-bma-booking-actions.php` | 1043-1130 |

@@ -566,9 +566,12 @@ Shown when group_id detected:
 ## UI/UX Design
 
 ### Brand & Theme
-- Hotel Number Four branding: Raleway font, warm tones
-- CSS-in-JS (inline styles via `theme.ts`) -- no external CSS dependencies
+- Clean, minimal styling that fits naturally within any WordPress theme
+- No heavy branding or opinionated design -- neutral enough to sit on most sites
+- CSS-in-JS (inline styles via `theme.ts`) -- no external CSS dependencies, no style conflicts
+- Configurable accent colour via theme.ts (defaults to warm hotel tones)
 - Mobile-first responsive, works within Divi page builder
+- Typography inherits from parent theme where possible (font-family: inherit as default)
 
 ### Calendar (DatePicker)
 - In-page calendar grid (not a popup/dropdown) -- flows naturally with progressive reveal

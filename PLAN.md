@@ -378,21 +378,83 @@ In the resident multi-day view (Flow B or post-booking stay planner), guests can
 
 ---
 
-## resOS Custom Fields on Created Bookings
+## resOS Custom Fields
 
-When the widget creates a resOS booking for a verified (or self-declared) hotel resident:
+### API Behaviour
 
-| Custom Field | Value | Notes |
-|---|---|---|
-| Hotel Guest | Yes | Multiple choice field |
-| Booking # | {NewBook booking_id} | Text field, the internal booking ID |
-| Source | `website-resident` or `website` | Distinguishes widget bookings from other sources |
+Custom fields on resOS bookings are a **JSON array** (`customFields`). On update (PUT), this is a **full overwrite** -- any fields not included in the array are deleted. For new bookings (POST), we supply the initial array. Each field object requires `_id` (the field definition ID from resOS) and the value in a type-specific format.
 
-Booking note includes any additional context (group info, joined-by names, covers mismatch responses, etc.).
+### Field Type Formats
 
-**What the widget does NOT write:**
+**Text fields:**
+```json
+{ "_id": "field-def-id", "name": "Booking #", "value": "12345" }
+```
+
+**Single-select (radio/dropdown) -- needs BOTH choice ID and display name:**
+```json
+{ "_id": "field-def-id", "name": "Hotel Guest", "value": "choice-uuid", "multipleChoiceValueName": "Yes" }
+```
+The `value` is the `_id` of the selected choice from `multipleChoiceSelections`. The `multipleChoiceValueName` is needed for the resOS UI to display correctly.
+
+**Multi-select (checkbox) -- array of objects, each with _id, name, and value:true:**
+```json
+{ "_id": "field-def-id", "name": "Dietary Requirements", "value": [
+  { "_id": "choice-uuid-1", "name": "Gluten Free", "value": true },
+  { "_id": "choice-uuid-2", "name": "Vegan", "value": true }
+]}
+```
+
+### Choice ID Resolution
+
+To set a single-select field (e.g., Hotel Guest = "Yes"):
+1. Fetch `GET /v1/customFields` to get all field definitions
+2. Find the field by its `_id` (from settings)
+3. Search `field.multipleChoiceSelections` for the choice with matching name
+4. Use that choice's `_id` as the `value`, and its `name` as `multipleChoiceValueName`
+
+### Field Mapping in Settings
+
+The admin settings page includes a "Custom Field Mapping" section:
+
+1. **"Load Fields from resOS"** button -- calls `GET /v1/customFields`, populates dropdowns
+2. Each dropdown shows: `{field.name} ({field.type})` with value = `field._id`
+3. User maps:
+   - **Hotel Guest field** -- which resOS field (radio/dropdown type expected)
+   - **Booking # field** -- which resOS field (text type expected)
+   - **Dietary field** -- which resOS field (checkbox type expected, for guest form)
+
+Field IDs stored as WP options: `rbw_field_hotel_guest`, `rbw_field_booking_ref`, `rbw_field_dietary`.
+
+On plugin init (or first use), auto-detect is attempted by name pattern matching:
+- Hotel Guest: field name contains "hotel" AND "guest" (case-insensitive)
+- Booking #: field name contains "booking" AND "#"
+- Dietary: field name contains "dietary" (note: resOS has a **leading space** in `" Dietary Requirements"` -- trim before matching)
+
+Auto-detected values are pre-filled in settings but user can override.
+
+### Choice ID Caching
+
+When fields are loaded/mapped, the specific choice IDs needed are also resolved and cached:
+- Hotel Guest "Yes" choice ID -- found by matching choice name "Yes" in `multipleChoiceSelections`
+- Stored alongside the field ID in WP options: `rbw_field_hotel_guest_yes_choice`
+
+This avoids fetching field definitions on every booking creation.
+
+### Fields Written on Booking Creation
+
+| Custom Field | Type | Value | Notes |
+|---|---|---|---|
+| Hotel Guest | radio/dropdown | Choice ID for "Yes" + `multipleChoiceValueName: "Yes"` | Only when guest identified as hotel resident |
+| Booking # | text | NewBook booking_id as string | Only when resident verified/declared |
+| Dietary | checkbox | Array of selected choice objects | From guest form checkboxes |
+
+Additional context goes in the booking `notes` field (group info, joined-by names, covers mismatch, etc.).
+
+### What the widget does NOT write:
 - GROUP/EXCLUDE field -- staff handle group linking via Chrome extension after reviewing booking notes
 - No modifications to existing resOS bookings (other guests' tables, covers, etc.)
+- No need for full-overwrite logic since we only CREATE new bookings, never update existing ones' custom fields
 
 ---
 
@@ -517,7 +579,7 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
 
 **`restaurant-booking-widget.php`** -- Plugin bootstrap
 - Shortcode `[restaurant_booking]`, autoloader, script enqueue
-- `wp_localize_script()` passes: REST URL, nonce, phone number, turnstile key
+- `wp_localize_script()` passes: REST URL, nonce, phone number, turnstile key, max party size, max booking window days, colour preset
 
 **`includes/class-rbw-resos-client.php`** -- Direct resOS API client
 - Own key: `get_option('rbw_resos_api_key')`
@@ -538,14 +600,23 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
 **`includes/class-rbw-rate-limiter.php`** -- WP transient-based IP throttling
 
 **`includes/class-rbw-admin.php`** -- Settings page (Settings > Booking Widget)
-- ResOS API key + test connection
-- NewBook credentials (username, password, API key, region) + test connection
-- Restaurant phone number (used in closeout messages, error states, "call us" fallbacks)
-- Turnstile site key + secret
-- Default closeout message template
-- Max party size (default 12) -- last button becomes `[{max}+]` with "please call" message
-- Max booking window in days (default 180) -- how far ahead the calendar allows
-- Colour preset: Light / Dark / Warm / Cold (4 clean accent sets, default Warm)
+- **API Credentials:**
+  - ResOS API key + test connection
+  - NewBook credentials (username, password, API key, region) + test connection
+- **General:**
+  - Restaurant phone number (used in closeout messages, error states, "call us" fallbacks)
+  - Turnstile site key + secret
+  - Default closeout message template
+- **Widget:**
+  - Max party size (default 12) -- last button becomes `[{max}+]` with "please call" message
+  - Max booking window in days (default 180) -- how far ahead the calendar allows
+  - Colour preset: Light / Dark / Warm / Cold (4 clean accent sets, default Warm)
+- **Custom Field Mapping:**
+  - "Load Fields from resOS" button -- fetches `GET /v1/customFields`, populates dropdowns
+  - Hotel Guest field mapping (dropdown, auto-detects by name pattern)
+  - Booking # field mapping (dropdown, auto-detects by name pattern)
+  - Dietary field mapping (dropdown, auto-detects by name pattern)
+  - Choice IDs auto-resolved and cached (e.g., Hotel Guest "Yes" choice ID)
 
 ### Frontend (React + TypeScript + Vite)
 

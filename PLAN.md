@@ -563,6 +563,86 @@ Shown when group_id detected:
 
 ---
 
+## UI/UX Design
+
+### Brand & Theme
+- Hotel Number Four branding: Raleway font, warm tones
+- CSS-in-JS (inline styles via `theme.ts`) -- no external CSS dependencies
+- Mobile-first responsive, works within Divi page builder
+
+### Calendar (DatePicker)
+- In-page calendar grid (not a popup/dropdown) -- flows naturally with progressive reveal
+- Shows current month with day grid (Mo-Su)
+- Past dates greyed out, today highlighted
+- Arrow buttons (`<` `>`) for month navigation
+- **Month jump:** clicking the month/year header (e.g., "February 2026") opens a month picker grid:
+  ```
+       <  February 2026  >     <- clickable header
+                                  v
+                            +----------------+
+                            | Feb  Mar  Apr  |
+                            | May  Jun  Jul  |
+                            | Aug  Sep  Oct  |
+                            | Nov  Dec  Jan  |
+                            +----------------+
+  ```
+- Month picker limited to ~6 months ahead (restaurant bookings rarely go further)
+- Selected date visually highlighted, subtle animation on selection
+
+### Party Size (PartySize)
+- Button grid (not dropdown) -- tactile, shows all options at once:
+  ```
+  How many guests?
+  [1] [2] [3] [4] [5] [6] [7] [8] [9] [10] [11] [12+]
+  ```
+- 12+ shows message: "For larger parties, please call {phone}"
+- Selected button highlighted with brand accent colour
+
+### Service Periods (ServicePeriods)
+- **Accordion style** (not tabs or scrollable list) -- one section open at a time
+- Default: expand the **latest period** that has available times (typically Dinner)
+- If a period is closed/full, still shows in accordion with closeout message inside
+- Clicking another period header closes the current one and opens the new one
+- Period labels include special event names when applicable:
+  ```
+  [> Lunch 12:00 - 14:30]                    <- collapsed
+  ----------------------------------------
+  [v Dinner 18:00 - 21:30]                    <- expanded (default)
+    [18:00] [18:30] [19:00] [19:30]
+    [20:00] [20:30] [21:00]
+  ----------------------------------------
+  ```
+- Closed/restricted period shows closeout message instead of time buttons:
+  ```
+  [v Dinner 18:00 - 21:30]
+    "Dinner reserved for hotel guests. Call 01451 830297"
+  ```
+- Special event name replaces generic period label:
+  ```
+  [v Christmas Eve Dinner 18:00 - 21:30]
+    [18:00] [18:30] [19:00]
+  ```
+
+### Time Slots (TimeSlots)
+- Button grid within the expanded accordion section
+- Available times as evenly-spaced buttons, similar style to party size buttons
+- Selected time highlighted with brand accent
+- Unavailable/past times not shown (API only returns bookable times)
+
+### Guest Form (GuestForm)
+- Clean stacked fields: Name, Email, Phone (optional), then "Are you staying?" toggle
+- Dietary choices as checkboxes (fetched from resOS custom fields)
+- Special requests as textarea
+- Progressive reveal: hotel guest section appears below after "Yes" clicked
+
+### Progressive Reveal
+- Each section slides/fades in as the previous is completed
+- Smooth CSS transitions (not jarring show/hide)
+- Completed sections remain visible but visually de-emphasised (collapsed summary)
+- User can click back on completed sections to change earlier selections
+
+---
+
 ## Phase 4: Closeout Messaging + Polish
 
 - `ClosedMessage.tsx` enhanced: parsed `%%message%%`, default fallbacks per scenario

@@ -100,9 +100,45 @@ Auth: `Basic base64(api_key + ':')`
 |---|---|---|
 | `/v1/bookingFlow/times?date=&people=&onlyBookableOnline=` | GET | Available time slots |
 | `/v1/openingHours?showDeleted=false&onlySpecial=false` | GET | Service periods + special events |
-| `/v1/customFields` | GET | Custom field definitions |
+| `/v1/customFields` | GET | Custom field definitions (admin settings only -- field mapping) |
 | `/v1/bookings` | POST | Create booking |
 | `/v1/bookings?fromDateTime=&toDateTime=` | GET | Fetch bookings (duplicate check + group table check) |
+
+**`bookingFlow/times` response structure:**
+Each item in the response array represents one opening hour period for the date, including its available time slots AND its active custom fields:
+```json
+[
+  {
+    "_id": "GTbgqpfADEW34HnJj",
+    "availableTimes": ["10:00", "10:15", "10:30"],
+    "activeCustomFields": [
+      {
+        "_id": "A9AL6pgqN2pS7H3oQ",
+        "name": "Text",
+        "type": "string",
+        "isRequired": false,
+        "label": "Text label",
+        "helptext": "Text helptext",
+        "sortIndex": 0
+      },
+      {
+        "_id": "pWpbQst7rdHw4BYd5",
+        "name": "Radio",
+        "type": "radio",
+        "isRequired": false,
+        "label": "Radio label",
+        "helptext": "Radio helptext",
+        "multipleChoiceSelections": [
+          { "_id": "aauPgKhJxG6GCCEQK", "name": "Option 1" },
+          { "_id": "qsFxnX3t75iaYNo2s", "name": "Option 2" }
+        ],
+        "sortIndex": 2
+      }
+    ]
+  }
+]
+```
+This means custom fields are **dynamic per opening hour period** -- different periods may show different fields. The guest form renders fields from `activeCustomFields` for the selected period.
 
 **Pagination:** resOS responses are paginated at 100 results. The `GET /v1/bookings` endpoint (duplicate check) may exceed 100 on busy days and needs pagination handling. Other endpoints (`openingHours`, `customFields`, `bookingFlow/times`) are unlikely to exceed 100.
 
@@ -380,24 +416,39 @@ In the resident multi-day view (Flow B or post-booking stay planner), guests can
 
 ## resOS Custom Fields
 
+### Two Categories of Custom Fields
+
+Custom fields on resOS bookings serve two purposes in this widget:
+
+**1. Pre-mapped fields (auto-set, hidden from guest):**
+- **Hotel Guest** -- set to "Yes" when guest identified as resident (radio/dropdown)
+- **Booking #** -- set to NewBook booking_id when resident verified (text)
+
+These are mapped in admin settings and populated automatically by the backend. The guest never sees or interacts with them.
+
+**2. Dynamic fields (shown to guest, from `activeCustomFields`):**
+The `bookingFlow/times` response includes an `activeCustomFields` array per opening hour period. These are whatever fields the restaurant has configured in resOS to show for that period -- dietary requirements, allergies, special requests fields, etc. The guest form renders ALL of these dynamically. Different periods may have different fields.
+
+This means **no separate dietary mapping is needed** -- dietary requirements simply appear as one of the dynamic fields if configured in resOS for that period.
+
 ### API Behaviour
 
-Custom fields on resOS bookings are a **JSON array** (`customFields`). On update (PUT), this is a **full overwrite** -- any fields not included in the array are deleted. For new bookings (POST), we supply the initial array. Each field object requires `_id` (the field definition ID from resOS) and the value in a type-specific format.
+Custom fields on resOS bookings are a **JSON array** (`customFields`). On update (PUT), this is a **full overwrite** -- any fields not included in the array are deleted. For new bookings (POST), we supply the initial array combining pre-mapped fields + guest-entered dynamic fields. Each field object requires `_id` (the field definition ID from resOS) and the value in a type-specific format.
 
 ### Field Type Formats
 
-**Text fields:**
+**Text (`string`) fields:**
 ```json
 { "_id": "field-def-id", "name": "Booking #", "value": "12345" }
 ```
 
-**Single-select (radio/dropdown) -- needs BOTH choice ID and display name:**
+**Single-select (`radio` / `dropdown`) -- needs BOTH choice ID and display name:**
 ```json
 { "_id": "field-def-id", "name": "Hotel Guest", "value": "choice-uuid", "multipleChoiceValueName": "Yes" }
 ```
 The `value` is the `_id` of the selected choice from `multipleChoiceSelections`. The `multipleChoiceValueName` is needed for the resOS UI to display correctly.
 
-**Multi-select (checkbox) -- array of objects, each with _id, name, and value:true:**
+**Multi-select (`checkbox`) -- array of objects, each with _id, name, and value:true:**
 ```json
 { "_id": "field-def-id", "name": "Dietary Requirements", "value": [
   { "_id": "choice-uuid-1", "name": "Gluten Free", "value": true },
@@ -405,15 +456,22 @@ The `value` is the `_id` of the selected choice from `multipleChoiceSelections`.
 ]}
 ```
 
-### Choice ID Resolution
+### Dynamic Custom Field Rendering
 
-To set a single-select field (e.g., Hotel Guest = "Yes"):
-1. Fetch `GET /v1/customFields` to get all field definitions
-2. Find the field by its `_id` (from settings)
-3. Search `field.multipleChoiceSelections` for the choice with matching name
-4. Use that choice's `_id` as the `value`, and its `name` as `multipleChoiceValueName`
+When the guest selects a time slot (which belongs to an opening hour period), the guest form renders all `activeCustomFields` from that period's response. Fields are rendered by type:
 
-### Field Mapping in Settings
+| Field `type` | Rendered as | Value format on submit |
+|---|---|---|
+| `string` | Text input | `{ _id, name, value: "text" }` |
+| `radio` | Radio button group | `{ _id, name, value: choice._id, multipleChoiceValueName: choice.name }` |
+| `dropdown` | Select dropdown | `{ _id, name, value: choice._id, multipleChoiceValueName: choice.name }` |
+| `checkbox` | Checkbox group | `{ _id, name, value: [{ _id, name, value: true }, ...] }` |
+
+Each field uses `label` as the display label, `helptext` as helper text below the input, `isRequired` for validation, and `sortIndex` for ordering. Choices come from `multipleChoiceSelections` array on the field definition.
+
+**Pre-mapped field filtering:** Fields whose `_id` matches a mapped field (Hotel Guest, Booking #) are **excluded** from dynamic rendering -- they're auto-set by the backend instead.
+
+### Pre-Mapped Field Settings
 
 The admin settings page includes a "Custom Field Mapping" section:
 
@@ -422,14 +480,13 @@ The admin settings page includes a "Custom Field Mapping" section:
 3. User maps:
    - **Hotel Guest field** -- which resOS field (radio/dropdown type expected)
    - **Booking # field** -- which resOS field (text type expected)
-   - **Dietary field** -- which resOS field (checkbox type expected, for guest form)
 
-Field IDs stored as WP options: `rbw_field_hotel_guest`, `rbw_field_booking_ref`, `rbw_field_dietary`.
+Field IDs stored as WP options: `rbw_field_hotel_guest`, `rbw_field_booking_ref`.
 
 On plugin init (or first use), auto-detect is attempted by name pattern matching:
 - Hotel Guest: field name contains "hotel" AND "guest" (case-insensitive)
 - Booking #: field name contains "booking" AND "#"
-- Dietary: field name contains "dietary" (note: resOS has a **leading space** in `" Dietary Requirements"` -- trim before matching)
+- Note: resOS may have **leading spaces** in field names (e.g., `" Dietary Requirements"`) -- always trim before matching
 
 Auto-detected values are pre-filled in settings but user can override.
 
@@ -443,11 +500,13 @@ This avoids fetching field definitions on every booking creation.
 
 ### Fields Written on Booking Creation
 
-| Custom Field | Type | Value | Notes |
-|---|---|---|---|
-| Hotel Guest | radio/dropdown | Choice ID for "Yes" + `multipleChoiceValueName: "Yes"` | Only when guest identified as hotel resident |
-| Booking # | text | NewBook booking_id as string | Only when resident verified/declared |
-| Dietary | checkbox | Array of selected choice objects | From guest form checkboxes |
+The `customFields` array on each booking combines:
+
+| Source | Custom Field | Type | Value | Notes |
+|---|---|---|---|---|
+| Pre-mapped | Hotel Guest | radio/dropdown | Choice ID for "Yes" + `multipleChoiceValueName: "Yes"` | Only when guest identified as hotel resident |
+| Pre-mapped | Booking # | text | NewBook booking_id as string | Only when resident verified/declared |
+| Dynamic | (any field from `activeCustomFields`) | varies | Guest-entered value, formatted per type | Rendered dynamically from period's custom fields |
 
 Additional context goes in the booking `notes` field (group info, joined-by names, covers mismatch, etc.).
 
@@ -501,6 +560,7 @@ When creating a resOS booking, include these notification fields so resOS sends 
 Key fields:
 - `sendNotification: true` -- tells resOS to send the confirmation email
 - `guest.notificationEmail: true` -- confirms the guest wants email notifications
+- `source: "website"` -- native resOS field (not a custom field). Valid values: `api`, `email`, `facebook`, `google`, `import`, `instagram`, `message`, `other`, `phone`, `walkin`, `website`. We always set `"website"`. Default if omitted is `"other"`.
 - The confirmation email from resOS includes a link for the guest to manage/cancel their booking
 
 ---
@@ -522,6 +582,8 @@ After a successful booking, the confirmation screen shows:
 ```
 
 No in-widget cancellation/modification -- handled entirely via the resOS confirmation email link or by phone.
+
+**Booking ID from API:** The `POST /v1/bookings` response returns a plain string booking ID, e.g., `"XKsyPGsbBwdmfGq3h"`. This is displayed as the booking reference on the confirmation screen and stored for duplicate-checking purposes.
 
 ---
 
@@ -583,13 +645,13 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
 
 **`includes/class-rbw-resos-client.php`** -- Direct resOS API client
 - Own key: `get_option('rbw_resos_api_key')`
-- Methods: `get_available_times()`, `get_opening_hours()`, `get_custom_fields()`, `get_bookings_for_date()`, `create_booking()`
+- Methods: `get_available_times()`, `get_opening_hours()`, `get_bookings_for_date()`, `create_booking()`, `get_custom_fields()` (admin settings only)
+- `get_available_times()` returns time slots + `activeCustomFields` per period -- passed through to frontend for dynamic form rendering
 - Phone formatting: strip leading 0, add +44 prefix
 
 **`includes/class-rbw-rest-controller.php`** -- Public REST endpoints
 - `GET /rbw/v1/opening-hours?date=` -- periods + special events for date
-- `POST /rbw/v1/available-times` -- time slots (date, people, openingHourId)
-- `GET /rbw/v1/dietary-choices` -- dietary options from custom fields
+- `POST /rbw/v1/available-times` -- time slots + `activeCustomFields` per period (date, people, openingHourId)
 - `POST /rbw/v1/create-booking` -- submit booking (Turnstile + duplicate check)
 - All rate-limited per IP
 
@@ -598,6 +660,12 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
 **`includes/class-rbw-duplicate-checker.php`** -- Email/phone dupe check
 
 **`includes/class-rbw-rate-limiter.php`** -- WP transient-based IP throttling
+- Read-only endpoints (opening-hours, available-times, dietary-choices): 30 requests/min/IP
+- Write endpoints (create-booking, create-bookings-batch): 5 requests/min/IP
+- Resident check endpoints (check-resident, verify-resident): 10 requests/min/IP
+- Uses WP transients keyed by IP + endpoint group, 60-second sliding window
+- Returns `429 Too Many Requests` with `Retry-After` header when exceeded
+- Note: resOS's own limit is 100 req/min which we won't approach since all calls are server-side and per-user
 
 **`includes/class-rbw-admin.php`** -- Settings page (Settings > Booking Widget)
 - **API Credentials:**
@@ -615,8 +683,8 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
   - "Load Fields from resOS" button -- fetches `GET /v1/customFields`, populates dropdowns
   - Hotel Guest field mapping (dropdown, auto-detects by name pattern)
   - Booking # field mapping (dropdown, auto-detects by name pattern)
-  - Dietary field mapping (dropdown, auto-detects by name pattern)
   - Choice IDs auto-resolved and cached (e.g., Hotel Guest "Yes" choice ID)
+  - Note: dietary and other guest-facing fields are rendered dynamically from `activeCustomFields` -- no mapping needed
 
 ### Frontend (React + TypeScript + Vite)
 
@@ -629,7 +697,8 @@ Progressive reveal single-page widget:
 - `ServicePeriods.tsx` -- tab bar per service period
 - `TimeSlots.tsx` -- time button grid within a period
 - `ClosedMessage.tsx` -- closeout/full messaging with parsed `%%text%%`
-- `GuestForm.tsx` -- name, email, phone, dietary checkboxes, notes
+- `GuestForm.tsx` -- name, email, phone, notes + dynamic custom fields
+- `CustomFields.tsx` -- renders `activeCustomFields` dynamically by type (text/radio/dropdown/checkbox)
 - `DuplicateWarning.tsx` -- "you already have a booking" prompt
 - `BookingConfirmation.tsx` -- success screen
 
@@ -830,8 +899,12 @@ Shown when group_id detected:
 
 ### Guest Form (GuestForm)
 - Clean stacked fields: Name, Email, Phone (optional), then "Are you staying?" toggle
-- Dietary choices as checkboxes (fetched from resOS custom fields)
-- Special requests as textarea
+- **Dynamic custom fields** rendered below the core fields, from the selected period's `activeCustomFields`:
+  - Each field rendered by type: text input, radio buttons, select dropdown, or checkbox group
+  - Labels, help text, required markers, and sort order all from the field definition
+  - Fields mapped as Hotel Guest / Booking # are excluded (auto-set by backend)
+  - If the guest changes their selected time to a different period, custom fields re-render for the new period
+- Special requests as textarea (native `notes` field, always shown)
 - Progressive reveal: hotel guest section appears below after "Yes" clicked
 
 ### Progressive Reveal
@@ -839,6 +912,13 @@ Shown when group_id detected:
 - Smooth CSS transitions (not jarring show/hide)
 - Completed sections remain visible but visually de-emphasised (collapsed summary)
 - User can click back on completed sections to change earlier selections
+
+**State reset on upstream changes:**
+When a guest changes an earlier selection, all downstream sections reset and collapse since they depend on the earlier value:
+- **Date changes:** party size, service periods, time slots, guest form all reset (availability changes per date)
+- **Party size changes:** service periods and time slots reset (availability depends on covers)
+- **Service period / time changes:** guest form resets (custom fields may differ per period)
+- The reset is visual (sections collapse smoothly) and functional (state cleared, data re-fetched for new params)
 
 ---
 
@@ -881,6 +961,7 @@ restaurant-booking-widget/
 |   |   |   |-- ServicePeriods.tsx
 |   |   |   |-- TimeSlots.tsx
 |   |   |   |-- GuestForm.tsx
+|   |   |   |-- CustomFields.tsx
 |   |   |   |-- HotelGuestSection.tsx
 |   |   |   |-- MultiNightUpsell.tsx
 |   |   |   |-- GroupBookingPrompt.tsx

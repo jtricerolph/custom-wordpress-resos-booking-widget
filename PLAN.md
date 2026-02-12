@@ -104,6 +104,8 @@ Auth: `Basic base64(api_key + ':')`
 | `/v1/bookings` | POST | Create booking |
 | `/v1/bookings?fromDateTime=&toDateTime=` | GET | Fetch bookings (duplicate check + group table check) |
 
+**Pagination:** resOS responses are paginated at 100 results. The `GET /v1/bookings` endpoint (duplicate check) may exceed 100 on busy days and needs pagination handling. Other endpoints (`openingHours`, `customFields`, `bookingFlow/times`) are unlikely to exceed 100.
+
 ### NewBook API
 Auth: `Basic base64(username + ':' + password)`, `api_key` + `region` in body
 
@@ -538,9 +540,12 @@ This means time slots are lazy-loaded per period (not all at once), keeping API 
 **`includes/class-rbw-admin.php`** -- Settings page (Settings > Booking Widget)
 - ResOS API key + test connection
 - NewBook credentials (username, password, API key, region) + test connection
-- Restaurant phone number
+- Restaurant phone number (used in closeout messages, error states, "call us" fallbacks)
 - Turnstile site key + secret
 - Default closeout message template
+- Max party size (default 12) -- last button becomes `[{max}+]` with "please call" message
+- Max booking window in days (default 180) -- how far ahead the calendar allows
+- Colour preset: Light / Dark / Warm / Cold (4 clean accent sets, default Warm)
 
 ### Frontend (React + TypeScript + Vite)
 
@@ -684,7 +689,11 @@ Shown when group_id detected:
 - Clean, minimal styling that fits naturally within any WordPress theme
 - No heavy branding or opinionated design -- neutral enough to sit on most sites
 - CSS-in-JS (inline styles via `theme.ts`) -- no external CSS dependencies, no style conflicts
-- Configurable accent colour via theme.ts (defaults to warm hotel tones)
+- 4 colour presets selectable via WP settings:
+  - **Warm** (default) -- warm neutral tones (earthy accents)
+  - **Light** -- clean light greys and soft accents
+  - **Dark** -- dark backgrounds, light text
+  - **Cold** -- cool blue/grey tones
 - Mobile-first responsive, works within Divi page builder
 - Typography inherits from parent theme where possible (font-family: inherit as default)
 
@@ -704,7 +713,7 @@ Shown when group_id detected:
                             | Nov  Dec  Jan  |
                             +----------------+
   ```
-- Month picker limited to ~6 months ahead (restaurant bookings rarely go further)
+- Month picker limited by max booking window setting (default 180 days)
 - Selected date visually highlighted, subtle animation on selection
 
 ### Party Size (PartySize)
@@ -713,7 +722,8 @@ Shown when group_id detected:
   How many guests?
   [1] [2] [3] [4] [5] [6] [7] [8] [9] [10] [11] [12+]
   ```
-- 12+ shows message: "For larger parties, please call {phone}"
+- Max party size configurable via settings (default 12)
+- Last button is always `[{max}+]` and shows: "For groups of more than {max} people, please call us on {phone}"
 - Selected button highlighted with brand accent colour
 
 ### Service Periods (ServicePeriods)

@@ -14,16 +14,25 @@ export default function TimeSlots({ theme, times, selectedTime, loading, onTimeS
   const s = styles(theme)
 
   if (loading) {
+    // Skeleton placeholder — 6 pill-shaped blocks
+    const skeletonStyle: CSSProperties = {
+      width: 72,
+      height: 36,
+      borderRadius: 6,
+      background: theme.border,
+      opacity: 0.4,
+      animation: 'rbw-pulse 1.2s ease-in-out infinite',
+    }
     return (
-      <div style={{ padding: 16, textAlign: 'center' }}>
-        <div style={s.spinner} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 0' }} aria-busy="true" aria-label="Loading available times">
+        {[0, 1, 2, 3, 4, 5].map(i => <div key={i} style={{ ...skeletonStyle, animationDelay: `${i * 0.1}s` }} />)}
       </div>
     )
   }
 
   if (times.length === 0) {
     return (
-      <div style={{ ...s.infoMessage, margin: '8px 0' }}>
+      <div style={{ ...s.infoMessage, margin: '8px 0' }} role="status">
         No available times for this period.
       </div>
     )
@@ -48,12 +57,15 @@ export default function TimeSlots({ theme, times, selectedTime, loading, onTimeS
   }
 
   return (
-    <div style={gridStyle}>
+    <div style={gridStyle} role="group" aria-label="Available times">
       {times.map(time => {
         const isSelected = time === selectedTime
+        const displayTime = formatTime(time)
         return (
           <button
             key={time}
+            aria-pressed={isSelected}
+            aria-label={`Book at ${displayTime}`}
             style={{
               ...s.button,
               ...(isSelected ? s.buttonSelected : {}),
@@ -72,7 +84,7 @@ export default function TimeSlots({ theme, times, selectedTime, loading, onTimeS
               }
             }}
           >
-            {formatTime(time)}
+            {displayTime}
           </button>
         )
       })}

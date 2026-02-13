@@ -38,7 +38,7 @@ export default function PartySize({ theme, maxPartySize, phone, selected, onSele
   return (
     <div>
       <div style={s.sectionTitle}>How many guests?</div>
-      <div style={gridStyle}>
+      <div style={gridStyle} role="group" aria-label="Party size">
         {buttons.map(size => {
           const isMax = size === maxPartySize
           const isSelected = size === selected
@@ -47,6 +47,8 @@ export default function PartySize({ theme, maxPartySize, phone, selected, onSele
           return (
             <button
               key={size}
+              aria-pressed={isSelected}
+              aria-label={isMax ? `${size} or more guests` : `${size} guest${size > 1 ? 's' : ''}`}
               style={{
                 ...s.button,
                 ...(isSelected ? s.buttonSelected : {}),
@@ -69,9 +71,9 @@ export default function PartySize({ theme, maxPartySize, phone, selected, onSele
         })}
       </div>
       {showMaxMessage && (
-        <div style={{ ...s.infoMessage, marginTop: 12 }}>
+        <div style={{ ...s.infoMessage, marginTop: 12 }} role="alert">
           For groups of more than {maxPartySize} people, please call us on{' '}
-          <strong>{phone}</strong>.
+          <a href={`tel:${phone.replace(/\s/g, '')}`} style={{ color: theme.primary, fontWeight: 600, textDecoration: 'none' }}>{phone}</a>.
         </div>
       )}
     </div>

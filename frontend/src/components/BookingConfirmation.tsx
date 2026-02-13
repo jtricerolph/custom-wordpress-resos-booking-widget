@@ -54,8 +54,8 @@ export default function BookingConfirmation({
   }
 
   return (
-    <div style={s.successCard}>
-      <div style={{ fontSize: 28, marginBottom: 8 }}>&#10003;</div>
+    <div style={s.successCard} role="status" aria-live="polite">
+      <div style={{ fontSize: 28, marginBottom: 8 }} aria-hidden="true">&#10003;</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: theme.text, marginBottom: 4 }}>
         Booking Confirmed
       </div>

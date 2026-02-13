@@ -29,6 +29,7 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
   const firstDayOfWeek = (new Date(year, month, 1).getDay() + 6) % 7 // Monday=0
 
   const dayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su']
+  const fullDayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
     'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -37,6 +38,10 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
     const m = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
     return `${y}-${m}-${day}`
+  }
+
+  function formatDateLabel(d: Date): string {
+    return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   }
 
   function prevMonth() {
@@ -67,6 +72,7 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
     navBtn: {
       background: 'none', border: 'none', fontSize: 18, cursor: 'pointer',
       color: theme.text, padding: '4px 8px', borderRadius: 4,
+      minWidth: 36, minHeight: 36,
     },
     monthLabel: {
       fontSize: 16, fontWeight: 600, cursor: 'pointer', color: theme.text,
@@ -83,6 +89,7 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
       padding: '8px 0', borderRadius: 6, fontSize: 14, cursor: 'pointer',
       border: 'none', background: 'transparent', color: theme.text,
       minHeight: 36, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      transition: 'background 0.15s ease',
     },
     dayDisabled: {
       color: theme.border, cursor: 'default',
@@ -100,6 +107,7 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
     monthBtn: {
       padding: '8px 4px', borderRadius: 6, border: `1px solid ${theme.border}`,
       background: theme.surface, color: theme.text, cursor: 'pointer', fontSize: 13,
+      minHeight: 36,
     },
     monthBtnDisabled: {
       color: theme.border, cursor: 'default', background: theme.background,
@@ -108,13 +116,13 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
 
   if (showMonthPicker) {
     return (
-      <div style={s.wrapper}>
+      <div style={s.wrapper} role="grid" aria-label="Month picker">
         <div style={s.header}>
-          <button style={s.navBtn} onClick={() => setViewDate(new Date(year - 1, month, 1))}>&lt;</button>
-          <span style={s.monthLabel} onClick={() => setShowMonthPicker(false)}>{year}</span>
-          <button style={s.navBtn} onClick={() => setViewDate(new Date(year + 1, month, 1))}>&gt;</button>
+          <button style={s.navBtn} onClick={() => setViewDate(new Date(year - 1, month, 1))} aria-label="Previous year">&lt;</button>
+          <button style={{ ...s.monthLabel, border: 'none', background: 'none' }} onClick={() => setShowMonthPicker(false)} aria-label="Close month picker">{year}</button>
+          <button style={s.navBtn} onClick={() => setViewDate(new Date(year + 1, month, 1))} aria-label="Next year">&gt;</button>
         </div>
-        <div style={s.monthGrid}>
+        <div style={s.monthGrid} role="group" aria-label="Months">
           {monthNames.map((name, i) => {
             const monthStart = new Date(year, i, 1)
             const monthEnd = new Date(year, i + 1, 0)
@@ -125,6 +133,7 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
                 style={{ ...s.monthBtn, ...(disabled ? s.monthBtnDisabled : {}) }}
                 disabled={disabled}
                 onClick={() => !disabled && selectMonth(i)}
+                aria-label={`${name} ${year}`}
               >
                 {name.substring(0, 3)}
               </button>
@@ -163,6 +172,9 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
         key={day}
         style={cellStyle}
         disabled={disabled}
+        aria-label={formatDateLabel(date)}
+        aria-pressed={isSelected}
+        aria-current={isToday ? 'date' : undefined}
         onClick={() => !disabled && onDateSelect(dateStr)}
         onMouseEnter={(e) => {
           if (!disabled && !isSelected) {
@@ -181,16 +193,16 @@ export default function DatePicker({ theme, maxBookingWindow, selectedDate, onDa
   }
 
   return (
-    <div style={s.wrapper}>
+    <div style={s.wrapper} role="grid" aria-label={`Calendar for ${monthNames[month]} ${year}`}>
       <div style={s.header}>
-        <button style={s.navBtn} onClick={prevMonth}>&lt;</button>
-        <span style={s.monthLabel} onClick={() => setShowMonthPicker(true)}>
+        <button style={s.navBtn} onClick={prevMonth} aria-label="Previous month">&lt;</button>
+        <button style={{ ...s.monthLabel, border: 'none', background: 'none' }} onClick={() => setShowMonthPicker(true)} aria-label="Pick a month">
           {monthNames[month]} {year}
-        </span>
-        <button style={s.navBtn} onClick={nextMonth}>&gt;</button>
+        </button>
+        <button style={s.navBtn} onClick={nextMonth} aria-label="Next month">&gt;</button>
       </div>
-      <div style={s.grid}>
-        {dayNames.map(d => <div key={d} style={s.dayHeader}>{d}</div>)}
+      <div style={s.grid} role="row">
+        {dayNames.map((d, i) => <div key={d} style={s.dayHeader} role="columnheader" aria-label={fullDayNames[i]}>{d}</div>)}
         {cells}
       </div>
     </div>

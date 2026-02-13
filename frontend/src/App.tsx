@@ -195,7 +195,7 @@ export default function App() {
   if (urlParams.bid) {
     return (
       <div style={s.container}>
-        <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } }`}</style>
+        <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } } @keyframes rbw-pulse { 0%,100% { opacity: 0.4 } 50% { opacity: 0.15 } }`}</style>
 
         {residentLoading && (
           <div style={{ textAlign: 'center', padding: 32 }}>
@@ -265,7 +265,7 @@ export default function App() {
 
   return (
     <div style={s.container}>
-      <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } }`}</style>
+      <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } } @keyframes rbw-pulse { 0%,100% { opacity: 0.4 } 50% { opacity: 0.15 } }`}</style>
 
       {/* Date Picker */}
       <div style={s.section}>

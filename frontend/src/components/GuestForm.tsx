@@ -103,53 +103,65 @@ export default function GuestForm({
 
   const rowStyle: CSSProperties = {
     display: 'flex',
+    flexWrap: 'wrap',
     gap: 12,
   }
 
   return (
-    <form onSubmit={handleSubmit} noValidate>
+    <form onSubmit={handleSubmit} noValidate aria-label="Guest booking details">
       <div style={fieldGroupStyle}>
-        <label style={s.label}>
-          Name <span style={{ color: theme.error }}>*</span>
+        <label htmlFor="rbw-name" style={s.label}>
+          Name <span style={{ color: theme.error }} aria-hidden="true">*</span>
         </label>
         <input
+          id="rbw-name"
           type="text"
           value={guestDetails.name}
+          autoComplete="name"
+          aria-required="true"
+          aria-invalid={!!nameError}
           style={{ ...s.input, ...(focusedField === 'name' ? s.inputFocus : {}), ...(nameError ? { borderColor: theme.error } : {}) }}
           onFocus={() => setFocusedField('name')}
           onBlur={() => { setFocusedField(null); markTouched('name') }}
           onChange={(e) => onGuestDetailsChange({ name: e.target.value })}
         />
-        {nameError && <div style={s.errorText}>{nameError}</div>}
+        {nameError && <div style={s.errorText} role="alert">{nameError}</div>}
       </div>
 
       <div style={rowStyle}>
-        <div style={{ ...fieldGroupStyle, flex: 1 }}>
-          <label style={s.label}>
-            Email <span style={{ color: theme.error }}>*</span>
+        <div style={{ ...fieldGroupStyle, flex: 1, minWidth: 180 }}>
+          <label htmlFor="rbw-email" style={s.label}>
+            Email <span style={{ color: theme.error }} aria-hidden="true">*</span>
           </label>
           <input
+            id="rbw-email"
             type="email"
             value={guestDetails.email}
+            autoComplete="email"
+            aria-required="true"
+            aria-invalid={!!emailError}
             style={{ ...s.input, ...(focusedField === 'email' ? s.inputFocus : {}), ...(emailError ? { borderColor: theme.error } : {}) }}
             onFocus={() => setFocusedField('email')}
             onBlur={() => { setFocusedField(null); markTouched('email') }}
             onChange={(e) => onGuestDetailsChange({ email: e.target.value })}
           />
-          {emailError && <div style={s.errorText}>{emailError}</div>}
+          {emailError && <div style={s.errorText} role="alert">{emailError}</div>}
         </div>
 
-        <div style={{ ...fieldGroupStyle, flex: 1 }}>
-          <label style={s.label}>Phone</label>
+        <div style={{ ...fieldGroupStyle, flex: 1, minWidth: 180 }}>
+          <label htmlFor="rbw-phone" style={s.label}>Phone</label>
           <input
+            id="rbw-phone"
             type="tel"
             value={guestDetails.phone}
+            autoComplete="tel"
+            aria-invalid={!!phoneError}
             style={{ ...s.input, ...(focusedField === 'phone' ? s.inputFocus : {}), ...(phoneError ? { borderColor: theme.error } : {}) }}
             onFocus={() => setFocusedField('phone')}
             onBlur={() => { setFocusedField(null); markTouched('phone') }}
             onChange={(e) => onGuestDetailsChange({ phone: e.target.value })}
           />
-          {phoneError && <div style={s.errorText}>{phoneError}</div>}
+          {phoneError && <div style={s.errorText} role="alert">{phoneError}</div>}
         </div>
       </div>
 
@@ -201,8 +213,9 @@ export default function GuestForm({
       />
 
       <div style={fieldGroupStyle}>
-        <label style={s.label}>Notes</label>
+        <label htmlFor="rbw-notes" style={s.label}>Notes</label>
         <textarea
+          id="rbw-notes"
           value={guestDetails.notes}
           rows={3}
           style={{

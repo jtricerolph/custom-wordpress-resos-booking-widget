@@ -143,30 +143,36 @@ export default function ServicePeriods({
         const isClosed = period.resident_only || !!period.display_message
 
         return (
-          <div key={period.id} style={s.period}>
+          <div key={period.id} style={s.period} role="region" aria-label={period.name}>
             <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={isExpanded}
+              aria-controls={`rbw-period-${period.id}`}
               style={{ ...s.header, ...(isExpanded ? s.headerExpanded : {}) }}
               onClick={() => togglePeriod(period.id)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePeriod(period.id) } }}
             >
               <span style={s.periodName}>
-                {period.is_special ? period.name : period.name}
+                {period.name}
               </span>
               <span style={s.periodTime}>
                 {period.from} – {period.to}
               </span>
-              <span style={{ ...s.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }}>
+              <span style={{ ...s.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }} aria-hidden="true">
                 ▼
               </span>
             </div>
             {isExpanded && (
-              <div style={s.content}>
+              <div id={`rbw-period-${period.id}`} style={s.content} role="region">
                 {isClosed && !period.resident_only ? (
                   <ClosedMessage theme={theme} message={period.display_message} phone={phone} />
                 ) : period.resident_only ? (
                   <ClosedMessage
                     theme={theme}
-                    message={period.display_message || `This period is reserved for hotel guests. If you're staying with us, use the link in your booking confirmation email.`}
+                    message={period.display_message}
                     phone={phone}
+                    residentOnly
                   />
                 ) : (
                   <TimeSlots

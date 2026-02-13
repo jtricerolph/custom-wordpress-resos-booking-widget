@@ -36,7 +36,7 @@ class RBW_REST_Controller extends WP_REST_Controller {
                     'sanitize_callback' => 'absint',
                 ),
                 'opening_hour_id' => array(
-                    'required'          => true,
+                    'required'          => false,
                     'sanitize_callback' => 'sanitize_text_field',
                 ),
             ),
@@ -211,6 +211,10 @@ class RBW_REST_Controller extends WP_REST_Controller {
 
     /**
      * POST /rbw/v1/available-times
+     *
+     * If opening_hour_id is provided: returns { times, activeCustomFields } for that period.
+     * If opening_hour_id is omitted: returns { periods: { [id]: { times, activeCustomFields } } }
+     * for ALL active periods from bookingFlow/times.
      */
     public function get_available_times($request) {
         $ip = RBW_Rate_Limiter::get_client_ip();
@@ -223,7 +227,7 @@ class RBW_REST_Controller extends WP_REST_Controller {
         $opening_hour_id = $request->get_param('opening_hour_id');
 
         $client = RBW_Resos_Client::get_instance();
-        $result = $client->get_available_times($date, $people, $opening_hour_id);
+        $result = $client->get_available_times($date, $people, $opening_hour_id ?: null);
 
         if (is_wp_error($result)) {
             return new WP_REST_Response(array(
@@ -232,13 +236,49 @@ class RBW_REST_Controller extends WP_REST_Controller {
         }
 
         if (!is_array($result) || empty($result)) {
+            // No opening_hour_id: empty periods map
+            if (empty($opening_hour_id)) {
+                return new WP_REST_Response(array('periods' => new \stdClass()), 200);
+            }
             return new WP_REST_Response(array(
                 'times' => array(),
                 'activeCustomFields' => array(),
             ), 200);
         }
 
-        // The response is an array of period objects; find the matching one
+        // Pre-mapped field IDs to filter out
+        $mapped_ids = array_filter(array(
+            get_option('rbw_field_hotel_guest', ''),
+            get_option('rbw_field_booking_ref', ''),
+        ));
+
+        // ---- All periods mode (no opening_hour_id) ----
+        if (empty($opening_hour_id)) {
+            $periods = array();
+
+            foreach ($result as $item) {
+                $id = $item['_id'] ?? '';
+                if (empty($id)) continue;
+
+                $times = $item['availableTimes'] ?? array();
+                $custom_fields = $item['activeCustomFields'] ?? array();
+
+                if (!empty($mapped_ids)) {
+                    $custom_fields = array_values(array_filter($custom_fields, function($field) use ($mapped_ids) {
+                        return !in_array($field['_id'] ?? '', $mapped_ids, true);
+                    }));
+                }
+
+                $periods[$id] = array(
+                    'times'              => $times,
+                    'activeCustomFields' => $custom_fields,
+                );
+            }
+
+            return new WP_REST_Response(array('periods' => (object) $periods), 200);
+        }
+
+        // ---- Single period mode (opening_hour_id provided) ----
         $period_data = null;
         foreach ($result as $item) {
             if (isset($item['_id']) && $item['_id'] === $opening_hour_id) {
@@ -247,7 +287,6 @@ class RBW_REST_Controller extends WP_REST_Controller {
             }
         }
 
-        // If only one result and no ID match, use it
         if (!$period_data && count($result) === 1) {
             $period_data = $result[0];
         }
@@ -261,12 +300,6 @@ class RBW_REST_Controller extends WP_REST_Controller {
 
         $times = $period_data['availableTimes'] ?? array();
         $custom_fields = $period_data['activeCustomFields'] ?? array();
-
-        // Filter out pre-mapped fields (Hotel Guest, Booking #)
-        $mapped_ids = array_filter(array(
-            get_option('rbw_field_hotel_guest', ''),
-            get_option('rbw_field_booking_ref', ''),
-        ));
 
         if (!empty($mapped_ids)) {
             $custom_fields = array_values(array_filter($custom_fields, function($field) use ($mapped_ids) {

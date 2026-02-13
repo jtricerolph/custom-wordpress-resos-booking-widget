@@ -79,9 +79,17 @@ export default function App() {
     }
   }, [api, setDate, setLoading, setError])
 
-  const handlePeopleSelect = useCallback((people: number) => {
-    setPeople(people)
-  }, [setPeople])
+  const handlePeopleSelect = useCallback(async (people: number) => {
+    setLoading(true)
+    try {
+      const result = await api.fetchAllAvailableTimes(state.date!, people)
+      setPeople(people, result.periods)
+    } catch (err) {
+      // Fall back: set people without pre-loaded times (ServicePeriods will lazy-load)
+      setPeople(people)
+      setError(err instanceof Error ? err.message : 'Failed to load available times')
+    }
+  }, [api, state.date, setPeople, setLoading, setError])
 
   const handlePeriodSelect = useCallback((periodId: string) => {
     setSelectedPeriod(periodId)
@@ -293,6 +301,11 @@ export default function App() {
             selected={state.people}
             onSelect={handlePeopleSelect}
           />
+          {state.loading && state.step === 'party_size' && (
+            <div style={{ textAlign: 'center', padding: 8 }}>
+              <div style={s.spinner} />
+            </div>
+          )}
         </div>
       )}
 
@@ -304,6 +317,7 @@ export default function App() {
             theme={theme}
             phone={config.phone}
             periods={state.periods}
+            allPeriodTimes={state.allPeriodTimes}
             date={state.date}
             people={state.people}
             selectedPeriodId={state.selectedPeriodId}

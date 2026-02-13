@@ -53,6 +53,10 @@ export interface TimeSlotResponse {
   activeCustomFields: CustomFieldDef[]
 }
 
+export interface AllPeriodsTimesResponse {
+  periods: Record<string, TimeSlotResponse>
+}
+
 export interface DuplicateCheckResult {
   duplicate: true
   existing_time: string

@@ -124,7 +124,7 @@ class Restaurant_Booking_Widget {
             wp_localize_script('rbw-widget', 'rbwConfig', array(
                 'restUrl' => esc_url_raw(rest_url('rbw/v1/')),
                 'nonce' => wp_create_nonce('wp_rest'),
-                'phone' => get_option('rbw_restaurant_phone', '01451 830297'),
+                'phone' => get_option('rbw_restaurant_phone', '01234567891'),
                 'turnstileSiteKey' => get_option('rbw_turnstile_site_key', ''),
                 'maxPartySize' => intval(get_option('rbw_max_party_size', 12)),
                 'maxBookingWindow' => intval(get_option('rbw_max_booking_window', 180)),

@@ -98,25 +98,37 @@ class RBW_Resos_Client {
         // If date provided, filter to periods active on that date
         if ($date) {
             $target = strtotime($date);
-            $result = array_values(array_filter($result, function($period) use ($target, $date) {
-                // Regular opening hours (not special) are always active
-                if (empty($period['isSpecial'])) {
-                    // Check if the period is active on the target day of week
+
+            // Separate special events for this date from regular periods
+            $special_events = array();
+            $regular_periods = array();
+
+            foreach ($result as $period) {
+                if (!empty($period['isSpecial'])) {
+                    // Special event: include only if it matches this date
+                    if (!empty($period['specialDate'])) {
+                        $special_date = substr($period['specialDate'], 0, 10);
+                        if ($special_date === $date) {
+                            $special_events[] = $period;
+                        }
+                    }
+                } else {
+                    // Regular period: include if active on this day of week
                     if (!empty($period['activeDays'])) {
                         $day_of_week = strtolower(date('l', $target));
-                        return !empty($period['activeDays'][$day_of_week]);
+                        if (!empty($period['activeDays'][$day_of_week])) {
+                            $regular_periods[] = $period;
+                        }
+                    } else {
+                        $regular_periods[] = $period;
                     }
-                    return true;
                 }
+            }
 
-                // Special events: check date range
-                if (!empty($period['specialDate'])) {
-                    $special_date = substr($period['specialDate'], 0, 10);
-                    return $special_date === $date;
-                }
-
-                return false;
-            }));
+            // Special events override ALL regular periods for that date
+            // This matches resOS behaviour: special events represent the
+            // complete schedule for that date, replacing recurring hours.
+            $result = !empty($special_events) ? $special_events : $regular_periods;
         }
 
         return $result;

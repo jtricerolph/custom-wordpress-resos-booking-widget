@@ -1,5 +1,5 @@
 import type {
-  OpeningHourPeriod, TimeSlotResponse, CreateBookingResult, CustomFieldValue,
+  OpeningHourPeriod, TimeSlotResponse, AllPeriodsTimesResponse, CreateBookingResult, CustomFieldValue,
   ResidentVerifyResult, MultiDateTimesResult, BatchCreateResult, StayNightSelection,
   ResidentMatchResult, PhoneVerifyResult, ReferenceVerifyResult, GroupCheckResult,
 } from '../types'
@@ -53,6 +53,16 @@ export function useBookingApi() {
         people,
         opening_hour_id: openingHourId,
       }),
+    })
+  }
+
+  async function fetchAllAvailableTimes(
+    date: string,
+    people: number
+  ): Promise<AllPeriodsTimesResponse> {
+    return apiFetch<AllPeriodsTimesResponse>('available-times', {
+      method: 'POST',
+      body: JSON.stringify({ date, people }),
     })
   }
 
@@ -163,7 +173,7 @@ export function useBookingApi() {
   }
 
   return {
-    fetchOpeningHours, fetchAvailableTimes, createBooking,
+    fetchOpeningHours, fetchAvailableTimes, fetchAllAvailableTimes, createBooking,
     verifyResident, fetchAvailableTimesMulti, createBookingsBatch, markNoTable,
     checkResident, verifyResidentPhone, verifyResidentReference, checkGroup,
   }

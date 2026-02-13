@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import type { ThemeColors } from '../utils/theme'
-import type { OpeningHourPeriod, CustomFieldDef } from '../types'
-import { useBookingApi } from '../hooks/useBookingApi'
+import type { OpeningHourPeriod, CustomFieldDef, TimeSlotResponse } from '../types'
 import TimeSlots from './TimeSlots'
 import ClosedMessage from './ClosedMessage'
 
@@ -10,6 +9,7 @@ interface ServicePeriodsProps {
   theme: ThemeColors
   phone: string
   periods: OpeningHourPeriod[]
+  allPeriodTimes: Record<string, TimeSlotResponse>
   date: string
   people: number
   selectedPeriodId: string | null
@@ -18,66 +18,34 @@ interface ServicePeriodsProps {
   onTimeSelect: (time: string, customFields: CustomFieldDef[]) => void
 }
 
-interface PeriodData {
-  times: string[]
-  customFields: CustomFieldDef[]
-  loading: boolean
-  loaded: boolean
-}
-
 export default function ServicePeriods({
-  theme, phone, periods, date, people,
+  theme, phone, periods, allPeriodTimes,
   selectedPeriodId, selectedTime,
   onPeriodSelect, onTimeSelect,
 }: ServicePeriodsProps) {
-  const api = useBookingApi()
-  const [periodData, setPeriodData] = useState<Record<string, PeriodData>>({})
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  // Auto-expand the last period with potential availability (typically Dinner)
+  const hasPreloadedTimes = Object.keys(allPeriodTimes).length > 0
+
+  // Auto-expand the last period that has available times
   useEffect(() => {
     if (periods.length > 0 && !expandedId) {
-      // Find the last non-closed period
-      const available = periods.filter(p => !p.resident_only && !p.display_message)
-      const target = available.length > 0 ? available[available.length - 1] : periods[periods.length - 1]
-      setExpandedId(target.id)
+      if (hasPreloadedTimes) {
+        // Find the last period that has times in the preloaded data
+        const withTimes = periods.filter(p => {
+          const data = allPeriodTimes[p.id]
+          return data && data.times.length > 0
+        })
+        const target = withTimes.length > 0 ? withTimes[withTimes.length - 1] : periods[periods.length - 1]
+        setExpandedId(target.id)
+      } else {
+        // Fallback: find last non-closed period
+        const available = periods.filter(p => !p.resident_only && !p.display_message)
+        const target = available.length > 0 ? available[available.length - 1] : periods[periods.length - 1]
+        setExpandedId(target.id)
+      }
     }
-  }, [periods, expandedId])
-
-  const loadPeriodData = useCallback(async (periodId: string) => {
-    const current = periodData[periodId]
-    if (current?.loaded || current?.loading) return
-
-    setPeriodData(prev => ({
-      ...prev,
-      [periodId]: { times: [], customFields: [], loading: true, loaded: false },
-    }))
-
-    try {
-      const result = await api.fetchAvailableTimes(date, people, periodId)
-      setPeriodData(prev => ({
-        ...prev,
-        [periodId]: {
-          times: result.times,
-          customFields: result.activeCustomFields,
-          loading: false,
-          loaded: true,
-        },
-      }))
-    } catch {
-      setPeriodData(prev => ({
-        ...prev,
-        [periodId]: { times: [], customFields: [], loading: false, loaded: true },
-      }))
-    }
-  }, [api, date, people, periodData])
-
-  // Load data when a period is expanded
-  useEffect(() => {
-    if (expandedId) {
-      loadPeriodData(expandedId)
-    }
-  }, [expandedId, loadPeriodData])
+  }, [periods, expandedId, hasPreloadedTimes, allPeriodTimes])
 
   function togglePeriod(periodId: string) {
     if (expandedId === periodId) {
@@ -89,8 +57,8 @@ export default function ServicePeriods({
   }
 
   function handleTimeSelect(periodId: string, time: string) {
-    const data = periodData[periodId]
-    onTimeSelect(time, data?.customFields || [])
+    const data = allPeriodTimes[periodId]
+    onTimeSelect(time, data?.activeCustomFields || [])
   }
 
   const s: Record<string, CSSProperties> = {
@@ -139,8 +107,14 @@ export default function ServicePeriods({
     <div style={s.wrapper}>
       {periods.map(period => {
         const isExpanded = expandedId === period.id
-        const data = periodData[period.id]
-        const isClosed = period.resident_only || !!period.display_message
+        const preloaded = allPeriodTimes[period.id]
+
+        // A period is closed if:
+        // 1. It has closeout markers (resident_only or display_message from openingHours), OR
+        // 2. bookingFlow/times didn't include it (not in allPeriodTimes) when we have preloaded data
+        const hasCloseoutMarker = period.resident_only || !!period.display_message
+        const notInBookingFlow = hasPreloadedTimes && !preloaded
+        const isClosed = hasCloseoutMarker || notInBookingFlow
 
         return (
           <div key={period.id} style={s.period} role="region" aria-label={period.name}>
@@ -165,21 +139,19 @@ export default function ServicePeriods({
             </div>
             {isExpanded && (
               <div id={`rbw-period-${period.id}`} style={s.content} role="region">
-                {isClosed && !period.resident_only ? (
-                  <ClosedMessage theme={theme} message={period.display_message} phone={phone} />
-                ) : period.resident_only ? (
+                {isClosed ? (
                   <ClosedMessage
                     theme={theme}
                     message={period.display_message}
                     phone={phone}
-                    residentOnly
+                    residentOnly={period.resident_only || undefined}
                   />
                 ) : (
                   <TimeSlots
                     theme={theme}
-                    times={data?.times || []}
+                    times={preloaded?.times || []}
                     selectedTime={selectedPeriodId === period.id ? selectedTime : null}
-                    loading={data?.loading ?? true}
+                    loading={!hasPreloadedTimes}
                     onTimeSelect={(time) => handleTimeSelect(period.id, time)}
                   />
                 )}

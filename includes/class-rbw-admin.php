@@ -116,7 +116,7 @@ class RBW_Admin {
                     <tr>
                         <th scope="row"><label for="rbw_restaurant_phone">Restaurant Phone</label></th>
                         <td><input type="text" id="rbw_restaurant_phone" name="rbw_restaurant_phone"
-                            value="<?php echo esc_attr(get_option('rbw_restaurant_phone', '01451 830297')); ?>"
+                            value="<?php echo esc_attr(get_option('rbw_restaurant_phone', '01234567891')); ?>"
                             class="regular-text" /></td>
                     </tr>
                     <tr>

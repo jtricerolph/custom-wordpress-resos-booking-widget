@@ -6,6 +6,7 @@ import type {
   GuestDetails,
   CustomFieldValue,
   DuplicateCheckResult,
+  TimeSlotResponse,
 } from '../types'
 
 export interface BookingFlowState {
@@ -13,6 +14,7 @@ export interface BookingFlowState {
   date: string | null
   people: number | null
   periods: OpeningHourPeriod[]
+  allPeriodTimes: Record<string, TimeSlotResponse>
   selectedPeriodId: string | null
   selectedTime: string | null
   activeCustomFields: CustomFieldDef[]
@@ -37,6 +39,7 @@ export function useBookingFlow() {
     date: null,
     people: null,
     periods: [],
+    allPeriodTimes: {},
     selectedPeriodId: null,
     selectedTime: null,
     activeCustomFields: [],
@@ -56,6 +59,7 @@ export function useBookingFlow() {
       step: 'party_size',
       // Reset downstream
       people: null,
+      allPeriodTimes: {},
       selectedPeriodId: null,
       selectedTime: null,
       activeCustomFields: [],
@@ -67,11 +71,12 @@ export function useBookingFlow() {
     }))
   }, [])
 
-  const setPeople = useCallback((people: number) => {
+  const setPeople = useCallback((people: number, periodTimes?: Record<string, TimeSlotResponse>) => {
     setState(prev => ({
       ...prev,
       people,
       step: 'time_selection',
+      allPeriodTimes: periodTimes || {},
       // Reset downstream
       selectedPeriodId: null,
       selectedTime: null,
@@ -153,6 +158,7 @@ export function useBookingFlow() {
       date: null,
       people: null,
       periods: [],
+      allPeriodTimes: {},
       selectedPeriodId: null,
       selectedTime: null,
       activeCustomFields: [],

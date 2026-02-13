@@ -147,3 +147,49 @@ export interface BatchBookingResult {
 export interface BatchCreateResult {
   results: BatchBookingResult[]
 }
+
+// Phase 3: Resident matching types
+
+export interface ResidentMatchResult {
+  match_tier: 0 | 1 | 2 | 3
+  message?: string
+  booking_id?: number
+  booking_reference_id?: string
+  check_in?: string
+  check_out?: string
+  nights?: string[]
+  room?: string
+  occupancy?: number
+  group_id?: number | null
+  phone_on_file?: boolean
+}
+
+export interface PhoneVerifyResult {
+  verified: boolean
+  booking_id?: number
+  check_in?: string
+  check_out?: string
+  nights?: string[]
+  room?: string
+  occupancy?: number
+  group_id?: number | null
+}
+
+export interface ReferenceVerifyResult {
+  verified: boolean
+  booking_id?: number
+  ota_match?: boolean
+  travel_agent_name?: string
+  internal_booking_id?: number
+}
+
+export interface GroupCheckResult {
+  is_group: boolean
+  group_size?: number
+  group_occupancy_total?: number
+  guest_occupancy?: number
+  existing_tables?: Array<{
+    newbook_booking_id: string
+    covers: number
+  }>
+}

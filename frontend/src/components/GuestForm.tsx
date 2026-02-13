@@ -6,15 +6,23 @@ import type {
   CustomFieldValue,
   GuestDetails,
   DuplicateCheckResult,
+  ResidentMatchResult,
 } from '../types'
 import { styles } from '../utils/theme'
 import { validateEmail, validatePhone, validateName } from '../utils/validation'
 import CustomFields from './CustomFields'
 import DuplicateWarning from './DuplicateWarning'
+import HotelGuestSection from './HotelGuestSection'
+import GroupBookingPrompt from './GroupBookingPrompt'
+import MultiNightUpsell from './MultiNightUpsell'
 
 interface GuestFormProps {
   theme: ThemeColors
   phone: string
+  date: string
+  people: number
+  selectedTime: string
+  selectedPeriodName: string
   customFields: CustomFieldDef[]
   guestDetails: GuestDetails
   customFieldValues: CustomFieldValue[]
@@ -22,18 +30,24 @@ interface GuestFormProps {
   loading: boolean
   error: string | null
   turnstileSiteKey: string
+  residentMatch: ResidentMatchResult | null
   onGuestDetailsChange: (details: Partial<GuestDetails>) => void
   onCustomFieldValuesChange: (values: CustomFieldValue[]) => void
   onDuplicateWarningChange: (warning: DuplicateCheckResult | null) => void
+  onResidentMatched: (match: ResidentMatchResult) => void
+  onGroupNotes: (notes: string) => void
+  onMultiNightSelected: (nights: string[]) => void
   onSubmit: (forceDuplicate?: boolean) => void
 }
 
 export default function GuestForm({
-  theme, phone,
+  theme, phone, date, people, selectedTime, selectedPeriodName,
   customFields, guestDetails, customFieldValues,
   duplicateWarning, loading, error, turnstileSiteKey,
+  residentMatch,
   onGuestDetailsChange, onCustomFieldValuesChange,
-  onDuplicateWarningChange, onSubmit,
+  onDuplicateWarningChange, onResidentMatched, onGroupNotes, onMultiNightSelected,
+  onSubmit,
 }: GuestFormProps) {
   const s = styles(theme)
   const [touched, setTouched] = useState<Record<string, boolean>>({})
@@ -138,6 +152,46 @@ export default function GuestForm({
           {phoneError && <div style={s.errorText}>{phoneError}</div>}
         </div>
       </div>
+
+      {/* Hotel Guest Section — appears after name/email/phone */}
+      {guestDetails.name.length >= 2 && guestDetails.email.includes('@') && (
+        <HotelGuestSection
+          theme={theme}
+          phone={phone}
+          date={date}
+          guestName={guestDetails.name}
+          guestEmail={guestDetails.email}
+          guestPhone={guestDetails.phone}
+          onResidentMatched={onResidentMatched}
+        />
+      )}
+
+      {/* Group Booking Prompt — when matched resident is in a group */}
+      {residentMatch && residentMatch.booking_id && residentMatch.group_id && (
+        <GroupBookingPrompt
+          theme={theme}
+          phone={phone}
+          date={date}
+          bookingId={residentMatch.booking_id}
+          groupId={residentMatch.group_id}
+          covers={people}
+          occupancy={residentMatch.occupancy || people}
+          onNotesUpdate={onGroupNotes}
+        />
+      )}
+
+      {/* Multi Night Upsell — when matched resident has multi-night stay */}
+      {residentMatch && residentMatch.nights && residentMatch.nights.length > 1 && (
+        <MultiNightUpsell
+          theme={theme}
+          match={residentMatch}
+          selectedDate={date}
+          selectedTime={selectedTime}
+          selectedPeriodName={selectedPeriodName}
+          people={people}
+          onNightsSelected={onMultiNightSelected}
+        />
+      )}
 
       <CustomFields
         theme={theme}

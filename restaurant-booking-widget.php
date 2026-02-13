@@ -45,6 +45,7 @@ class Restaurant_Booking_Widget {
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-duplicate-checker.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-rate-limiter.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-resident-lookup.php';
+        require_once RBW_PLUGIN_DIR . 'includes/class-rbw-resident-matcher.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-rest-controller.php';
 
         if (is_admin()) {

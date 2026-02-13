@@ -1,6 +1,7 @@
 import type {
   OpeningHourPeriod, TimeSlotResponse, CreateBookingResult, CustomFieldValue,
   ResidentVerifyResult, MultiDateTimesResult, BatchCreateResult, StayNightSelection,
+  ResidentMatchResult, PhoneVerifyResult, ReferenceVerifyResult, GroupCheckResult,
 } from '../types'
 
 function getConfig() {
@@ -66,6 +67,7 @@ export function useBookingApi() {
     custom_fields?: CustomFieldValue[]
     turnstile_token?: string
     force_duplicate?: boolean
+    resident_booking_id?: number
   }): Promise<CreateBookingResult> {
     return apiFetch<CreateBookingResult>('create-booking', {
       method: 'POST',
@@ -128,8 +130,41 @@ export function useBookingApi() {
     })
   }
 
+  // Phase 3: Check resident match during Flow A
+  async function checkResident(date: string, name: string, email: string, phone?: string): Promise<ResidentMatchResult> {
+    return apiFetch<ResidentMatchResult>('check-resident', {
+      method: 'POST',
+      body: JSON.stringify({ date, name, email, phone }),
+    })
+  }
+
+  // Phase 3: Verify phone for Tier 2 match
+  async function verifyResidentPhone(date: string, name: string, phone: string): Promise<PhoneVerifyResult> {
+    return apiFetch<PhoneVerifyResult>('verify-resident-phone', {
+      method: 'POST',
+      body: JSON.stringify({ date, name, phone }),
+    })
+  }
+
+  // Phase 3: Verify manual booking reference
+  async function verifyResidentReference(date: string, reference: string): Promise<ReferenceVerifyResult> {
+    return apiFetch<ReferenceVerifyResult>('verify-resident-reference', {
+      method: 'POST',
+      body: JSON.stringify({ date, reference }),
+    })
+  }
+
+  // Phase 3: Check group status
+  async function checkGroup(date: string, bookingId: number, groupId: number, covers: number): Promise<GroupCheckResult> {
+    return apiFetch<GroupCheckResult>('check-group', {
+      method: 'POST',
+      body: JSON.stringify({ date, booking_id: bookingId, group_id: groupId, covers }),
+    })
+  }
+
   return {
     fetchOpeningHours, fetchAvailableTimes, createBooking,
     verifyResident, fetchAvailableTimesMulti, createBookingsBatch, markNoTable,
+    checkResident, verifyResidentPhone, verifyResidentReference, checkGroup,
   }
 }

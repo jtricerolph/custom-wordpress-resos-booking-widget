@@ -4,7 +4,7 @@ import { getTheme, getConfig, styles } from './utils/theme'
 import { useBookingFlow } from './hooks/useBookingFlow'
 import { useBookingApi } from './hooks/useBookingApi'
 import { useUrlParams } from './hooks/useUrlParams'
-import type { CustomFieldDef, GuestDetails, CustomFieldValue, DuplicateCheckResult, ResidentInfo } from './types'
+import type { CustomFieldDef, GuestDetails, CustomFieldValue, DuplicateCheckResult, ResidentInfo, ResidentMatchResult } from './types'
 import DatePicker from './components/DatePicker'
 import PartySize from './components/PartySize'
 import ServicePeriods from './components/ServicePeriods'
@@ -24,6 +24,11 @@ export default function App() {
   const [residentInfo, setResidentInfo] = useState<ResidentInfo | null>(null)
   const [residentLoading, setResidentLoading] = useState(false)
   const [residentError, setResidentError] = useState<string | null>(null)
+
+  // Flow A: Phase 3 resident match state (from HotelGuestSection)
+  const [residentMatch, setResidentMatch] = useState<ResidentMatchResult | null>(null)
+  const [groupNotes, setGroupNotes] = useState('')
+  const [multiNightDates, setMultiNightDates] = useState<string[]>([])
 
   const {
     state,
@@ -98,6 +103,18 @@ export default function App() {
     setDuplicateWarning(warning)
   }, [setDuplicateWarning])
 
+  const handleResidentMatched = useCallback((match: ResidentMatchResult) => {
+    setResidentMatch(match)
+  }, [])
+
+  const handleGroupNotes = useCallback((notes: string) => {
+    setGroupNotes(notes)
+  }, [])
+
+  const handleMultiNightSelected = useCallback((nights: string[]) => {
+    setMultiNightDates(nights)
+  }, [])
+
   const handleSubmit = useCallback(async (forceDuplicate?: boolean) => {
     if (!state.date || !state.selectedTime || !state.people) return
 
@@ -110,6 +127,9 @@ export default function App() {
         turnstileToken = turnstileResponse.value
       }
 
+      // Combine notes: user notes + group notes
+      const combinedNotes = [state.guestDetails.notes, groupNotes].filter(Boolean).join(' | ') || undefined
+
       const result = await api.createBooking({
         date: state.date,
         time: state.selectedTime,
@@ -117,10 +137,11 @@ export default function App() {
         name: state.guestDetails.name,
         email: state.guestDetails.email,
         phone: state.guestDetails.phone || undefined,
-        notes: state.guestDetails.notes || undefined,
+        notes: combinedNotes,
         custom_fields: state.customFieldValues.length > 0 ? state.customFieldValues : undefined,
         turnstile_token: turnstileToken,
         force_duplicate: forceDuplicate,
+        resident_booking_id: residentMatch?.booking_id,
       })
 
       if ('duplicate' in result && result.duplicate) {
@@ -128,13 +149,34 @@ export default function App() {
         setError(null)
         if (window.turnstile) window.turnstile.reset()
       } else if ('success' in result && result.success) {
+        // Create additional bookings for selected multi-night dates
+        if (multiNightDates.length > 0 && state.selectedPeriodId) {
+          for (const nightDate of multiNightDates) {
+            try {
+              await api.createBooking({
+                date: nightDate,
+                time: state.selectedTime,
+                people: state.people,
+                name: state.guestDetails.name,
+                email: state.guestDetails.email,
+                phone: state.guestDetails.phone || undefined,
+                notes: combinedNotes,
+                custom_fields: state.customFieldValues.length > 0 ? state.customFieldValues : undefined,
+                force_duplicate: true,
+                resident_booking_id: residentMatch?.booking_id,
+              })
+            } catch {
+              // Individual night failure doesn't block the primary booking
+            }
+          }
+        }
         setBookingConfirmed(result.booking_id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
       if (window.turnstile) window.turnstile.reset()
     }
-  }, [state, api, setSubmitting, setDuplicateWarning, setBookingConfirmed, setError])
+  }, [state, api, groupNotes, residentMatch, multiNightDates, setSubmitting, setDuplicateWarning, setBookingConfirmed, setError])
 
   // Section visibility
   const showPartySize = state.step !== 'date'
@@ -279,6 +321,10 @@ export default function App() {
           <GuestForm
             theme={theme}
             phone={config.phone}
+            date={state.date!}
+            people={state.people!}
+            selectedTime={state.selectedTime!}
+            selectedPeriodName={selectedPeriodName}
             customFields={state.activeCustomFields}
             guestDetails={state.guestDetails}
             customFieldValues={state.customFieldValues}
@@ -286,9 +332,13 @@ export default function App() {
             loading={state.loading}
             error={state.error}
             turnstileSiteKey={turnstileSiteKey}
+            residentMatch={residentMatch}
             onGuestDetailsChange={handleGuestDetailsChange}
             onCustomFieldValuesChange={handleCustomFieldValuesChange}
             onDuplicateWarningChange={handleDuplicateWarningChange}
+            onResidentMatched={handleResidentMatched}
+            onGroupNotes={handleGroupNotes}
+            onMultiNightSelected={handleMultiNightSelected}
             onSubmit={handleSubmit}
           />
         </div>

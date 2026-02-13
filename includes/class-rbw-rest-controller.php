@@ -96,6 +96,55 @@ class RBW_REST_Controller extends WP_REST_Controller {
             ),
         ));
 
+        // Phase 3: Check if a guest is a resident (during Flow A)
+        register_rest_route($this->namespace, '/check-resident', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array($this, 'check_resident'),
+            'permission_callback' => '__return_true',
+            'args'                => array(
+                'date'  => array('required' => true, 'sanitize_callback' => 'sanitize_text_field', 'validate_callback' => array($this, 'validate_date')),
+                'name'  => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
+                'email' => array('required' => true, 'sanitize_callback' => 'sanitize_email'),
+                'phone' => array('required' => false, 'sanitize_callback' => 'sanitize_text_field'),
+            ),
+        ));
+
+        // Phase 3: Verify phone for Tier 2 partial match
+        register_rest_route($this->namespace, '/verify-resident-phone', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array($this, 'verify_resident_phone'),
+            'permission_callback' => '__return_true',
+            'args'                => array(
+                'date'  => array('required' => true, 'sanitize_callback' => 'sanitize_text_field', 'validate_callback' => array($this, 'validate_date')),
+                'name'  => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
+                'phone' => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
+            ),
+        ));
+
+        // Phase 3: Verify manually entered booking reference
+        register_rest_route($this->namespace, '/verify-resident-reference', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array($this, 'verify_resident_reference'),
+            'permission_callback' => '__return_true',
+            'args'                => array(
+                'date'      => array('required' => true, 'sanitize_callback' => 'sanitize_text_field', 'validate_callback' => array($this, 'validate_date')),
+                'reference' => array('required' => true, 'sanitize_callback' => 'sanitize_text_field'),
+            ),
+        ));
+
+        // Phase 3: Check group booking status
+        register_rest_route($this->namespace, '/check-group', array(
+            'methods'             => WP_REST_Server::CREATABLE,
+            'callback'            => array($this, 'check_group'),
+            'permission_callback' => '__return_true',
+            'args'                => array(
+                'date'       => array('required' => true, 'sanitize_callback' => 'sanitize_text_field', 'validate_callback' => array($this, 'validate_date')),
+                'booking_id' => array('required' => true, 'sanitize_callback' => 'absint'),
+                'group_id'   => array('required' => true, 'sanitize_callback' => 'absint'),
+                'covers'     => array('required' => true, 'sanitize_callback' => 'absint'),
+            ),
+        ));
+
         register_rest_route($this->namespace, '/create-booking', array(
             'methods'             => WP_REST_Server::CREATABLE,
             'callback'            => array($this, 'create_booking'),
@@ -110,7 +159,8 @@ class RBW_REST_Controller extends WP_REST_Controller {
                 'notes'           => array('required' => false, 'sanitize_callback' => 'sanitize_textarea_field'),
                 'custom_fields'   => array('required' => false),
                 'turnstile_token' => array('required' => false, 'sanitize_callback' => 'sanitize_text_field'),
-                'force_duplicate' => array('required' => false, 'sanitize_callback' => 'rest_sanitize_boolean'),
+                'force_duplicate'     => array('required' => false, 'sanitize_callback' => 'rest_sanitize_boolean'),
+                'resident_booking_id' => array('required' => false, 'sanitize_callback' => 'absint'),
             ),
         ));
     }
@@ -152,6 +202,9 @@ class RBW_REST_Controller extends WP_REST_Controller {
                 'display_message' => $parsed['display_message'],
             );
         }
+
+        // Phase 3: Prefetch staying list for resident matching (fire-and-forget)
+        RBW_Resident_Matcher::prefetch_staying_list($date);
 
         return new WP_REST_Response($periods, 200);
     }
@@ -290,8 +343,29 @@ class RBW_REST_Controller extends WP_REST_Controller {
             }
         }
 
-        // Note: Pre-mapped fields (Hotel Guest, Booking #) are NOT added in Phase 1.
-        // They will be added in Phase 2/3 when resident detection is implemented.
+        // Add pre-mapped fields for verified residents
+        $resident_booking_id = $request->get_param('resident_booking_id');
+        if ($resident_booking_id) {
+            $hotel_guest_field = get_option('rbw_field_hotel_guest', '');
+            $hotel_guest_yes   = get_option('rbw_field_hotel_guest_yes_choice', '');
+            $booking_ref_field = get_option('rbw_field_booking_ref', '');
+
+            if ($hotel_guest_field && $hotel_guest_yes) {
+                $custom_fields[] = array(
+                    '_id'                     => $hotel_guest_field,
+                    'name'                    => 'Hotel Guest',
+                    'value'                   => $hotel_guest_yes,
+                    'multipleChoiceValueName' => 'Yes',
+                );
+            }
+            if ($booking_ref_field) {
+                $custom_fields[] = array(
+                    '_id'   => $booking_ref_field,
+                    'name'  => 'Booking #',
+                    'value' => strval($resident_booking_id),
+                );
+            }
+        }
 
         // Format phone
         $formatted_phone = RBW_Resos_Client::format_phone($phone);
@@ -623,6 +697,81 @@ class RBW_REST_Controller extends WP_REST_Controller {
         }
 
         return new WP_REST_Response(array('success' => true), 200);
+    }
+
+    // ---- Phase 3 Endpoints ----
+
+    /**
+     * POST /rbw/v1/check-resident
+     * Check if guest details match a staying guest (during Flow A).
+     */
+    public function check_resident($request) {
+        $ip = RBW_Rate_Limiter::get_client_ip();
+        if (!RBW_Rate_Limiter::check($ip, 'resident')) {
+            return new WP_REST_Response(array('error' => 'Rate limit exceeded'), 429);
+        }
+
+        $date  = $request->get_param('date');
+        $name  = $request->get_param('name');
+        $email = $request->get_param('email');
+        $phone = $request->get_param('phone') ?: '';
+
+        $result = RBW_Resident_Matcher::match_guest($date, $name, $email, $phone);
+        return new WP_REST_Response($result, 200);
+    }
+
+    /**
+     * POST /rbw/v1/verify-resident-phone
+     * Verify phone number for Tier 2 partial match.
+     */
+    public function verify_resident_phone($request) {
+        $ip = RBW_Rate_Limiter::get_client_ip();
+        if (!RBW_Rate_Limiter::check($ip, 'resident')) {
+            return new WP_REST_Response(array('error' => 'Rate limit exceeded'), 429);
+        }
+
+        $date  = $request->get_param('date');
+        $name  = $request->get_param('name');
+        $phone = $request->get_param('phone');
+
+        $result = RBW_Resident_Matcher::verify_phone($date, $name, $phone);
+        return new WP_REST_Response($result, 200);
+    }
+
+    /**
+     * POST /rbw/v1/verify-resident-reference
+     * Verify a manually entered booking reference.
+     */
+    public function verify_resident_reference($request) {
+        $ip = RBW_Rate_Limiter::get_client_ip();
+        if (!RBW_Rate_Limiter::check($ip, 'resident')) {
+            return new WP_REST_Response(array('error' => 'Rate limit exceeded'), 429);
+        }
+
+        $date      = $request->get_param('date');
+        $reference = $request->get_param('reference');
+
+        $result = RBW_Resident_Matcher::verify_reference($date, $reference);
+        return new WP_REST_Response($result, 200);
+    }
+
+    /**
+     * POST /rbw/v1/check-group
+     * Check group booking status for a matched resident.
+     */
+    public function check_group($request) {
+        $ip = RBW_Rate_Limiter::get_client_ip();
+        if (!RBW_Rate_Limiter::check($ip, 'resident')) {
+            return new WP_REST_Response(array('error' => 'Rate limit exceeded'), 429);
+        }
+
+        $date       = $request->get_param('date');
+        $booking_id = $request->get_param('booking_id');
+        $group_id   = $request->get_param('group_id');
+        $covers     = $request->get_param('covers');
+
+        $result = RBW_Resident_Matcher::check_group($date, $booking_id, $group_id, $covers);
+        return new WP_REST_Response($result, 200);
     }
 
     /**

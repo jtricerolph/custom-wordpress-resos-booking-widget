@@ -1,20 +1,29 @@
-import { useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { getTheme, getConfig, styles } from './utils/theme'
 import { useBookingFlow } from './hooks/useBookingFlow'
 import { useBookingApi } from './hooks/useBookingApi'
-import type { CustomFieldDef, GuestDetails, CustomFieldValue, DuplicateCheckResult } from './types'
+import { useUrlParams } from './hooks/useUrlParams'
+import type { CustomFieldDef, GuestDetails, CustomFieldValue, DuplicateCheckResult, ResidentInfo } from './types'
 import DatePicker from './components/DatePicker'
 import PartySize from './components/PartySize'
 import ServicePeriods from './components/ServicePeriods'
 import GuestForm from './components/GuestForm'
 import BookingConfirmation from './components/BookingConfirmation'
+import ResidentBanner from './components/ResidentBanner'
+import StayPlanner from './components/StayPlanner'
 
 export default function App() {
   const config = getConfig()
   const theme = getTheme(config.colourPreset)
   const s = styles(theme)
   const api = useBookingApi()
+  const urlParams = useUrlParams()
+
+  // Flow B: Resident state
+  const [residentInfo, setResidentInfo] = useState<ResidentInfo | null>(null)
+  const [residentLoading, setResidentLoading] = useState(false)
+  const [residentError, setResidentError] = useState<string | null>(null)
 
   const {
     state,
@@ -32,6 +41,28 @@ export default function App() {
     setSubmitting,
     resetToDate,
   } = useBookingFlow()
+
+  // Flow B: Auto-verify resident when bid+gid in URL
+  useEffect(() => {
+    if (urlParams.bid) {
+      setResidentLoading(true)
+      api.verifyResident({
+        bid: urlParams.bid,
+        gid: urlParams.gid ?? undefined,
+      }).then(result => {
+        if ('verified' in result && result.verified && 'guest_name' in result) {
+          setResidentInfo(result as ResidentInfo)
+        } else {
+          const errorResult = result as { verified: false; error: string }
+          setResidentError(errorResult.error || 'Could not verify your booking link.')
+        }
+      }).catch(() => {
+        setResidentError('Could not verify your booking link. You can continue as a regular guest.')
+      }).finally(() => {
+        setResidentLoading(false)
+      })
+    }
+  }, [urlParams.bid, urlParams.gid, api])
 
   const handleDateSelect = useCallback(async (date: string) => {
     setLoading(true)
@@ -73,7 +104,6 @@ export default function App() {
     setSubmitting()
 
     try {
-      // Get Turnstile token if configured
       let turnstileToken: string | undefined
       const turnstileResponse = document.querySelector<HTMLInputElement>('[name="cf-turnstile-response"]')
       if (turnstileResponse?.value) {
@@ -96,23 +126,17 @@ export default function App() {
       if ('duplicate' in result && result.duplicate) {
         setDuplicateWarning(result)
         setError(null)
-        // Reset Turnstile for retry
-        if (window.turnstile) {
-          window.turnstile.reset()
-        }
+        if (window.turnstile) window.turnstile.reset()
       } else if ('success' in result && result.success) {
         setBookingConfirmed(result.booking_id)
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
-      // Reset Turnstile on error
-      if (window.turnstile) {
-        window.turnstile.reset()
-      }
+      if (window.turnstile) window.turnstile.reset()
     }
   }, [state, api, setSubmitting, setDuplicateWarning, setBookingConfirmed, setError])
 
-  // Section visibility based on step progression
+  // Section visibility
   const showPartySize = state.step !== 'date'
   const showTimePeriods = state.step !== 'date' && state.step !== 'party_size'
   const showGuestForm = state.step === 'guest_details' || state.step === 'submitting'
@@ -124,6 +148,60 @@ export default function App() {
   }
 
   const turnstileSiteKey = window.rbwConfig?.turnstileSiteKey || ''
+
+  // ---- Flow B: Resident Stay Planner ----
+  if (urlParams.bid) {
+    return (
+      <div style={s.container}>
+        <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } }`}</style>
+
+        {residentLoading && (
+          <div style={{ textAlign: 'center', padding: 32 }}>
+            <div style={s.spinner} />
+            <div style={{ marginTop: 12, color: theme.textSecondary, fontSize: 14 }}>
+              Verifying your booking…
+            </div>
+          </div>
+        )}
+
+        {residentError && (
+          <div style={{ ...s.infoMessage, marginBottom: 24 }}>
+            <div style={{ marginBottom: 12 }}>{residentError}</div>
+            <div style={{ fontSize: 13 }}>
+              You can still{' '}
+              <a
+                href={window.location.pathname}
+                style={{ color: theme.primary, textDecoration: 'underline' }}
+              >
+                book as a regular guest
+              </a>
+              , or call{' '}
+              <a href={`tel:${config.phone}`} style={{ color: theme.primary }}>{config.phone}</a>.
+            </div>
+          </div>
+        )}
+
+        {residentInfo && (
+          <>
+            <ResidentBanner theme={theme} resident={residentInfo} />
+            <div style={s.sectionTitle}>Plan Your Stay</div>
+            <StayPlanner
+              theme={theme}
+              phone={config.phone}
+              resident={residentInfo}
+              defaultPeople={urlParams.people || residentInfo.occupancy || 2}
+              onDone={() => {
+                // Clear URL params and reload as regular flow
+                window.location.href = window.location.pathname
+              }}
+            />
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ---- Flow A: Regular Booking ----
 
   if (showConfirmation && state.bookingId && state.date && state.selectedTime && state.people) {
     return (
@@ -145,10 +223,9 @@ export default function App() {
 
   return (
     <div style={s.container}>
-      {/* Spinner keyframes */}
       <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } }`}</style>
 
-      {/* Date Picker — always visible */}
+      {/* Date Picker */}
       <div style={s.section}>
         <div style={s.sectionTitle}>Select a Date</div>
         <DatePicker

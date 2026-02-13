@@ -40,9 +40,11 @@ class Restaurant_Booking_Widget {
 
     private function load_dependencies() {
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-resos-client.php';
+        require_once RBW_PLUGIN_DIR . 'includes/class-rbw-newbook-client.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-closeout-parser.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-duplicate-checker.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-rate-limiter.php';
+        require_once RBW_PLUGIN_DIR . 'includes/class-rbw-resident-lookup.php';
         require_once RBW_PLUGIN_DIR . 'includes/class-rbw-rest-controller.php';
 
         if (is_admin()) {

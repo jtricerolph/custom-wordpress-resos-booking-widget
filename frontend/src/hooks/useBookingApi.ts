@@ -1,4 +1,7 @@
-import type { OpeningHourPeriod, TimeSlotResponse, CreateBookingResult, CustomFieldValue } from '../types'
+import type {
+  OpeningHourPeriod, TimeSlotResponse, CreateBookingResult, CustomFieldValue,
+  ResidentVerifyResult, MultiDateTimesResult, BatchCreateResult, StayNightSelection,
+} from '../types'
 
 function getConfig() {
   const config = window.rbwConfig || ({} as typeof window.rbwConfig)
@@ -70,5 +73,63 @@ export function useBookingApi() {
     })
   }
 
-  return { fetchOpeningHours, fetchAvailableTimes, createBooking }
+  // Phase 2: Resident verification
+  async function verifyResident(params: {
+    bid: number
+    gid?: number
+    surname?: string
+    email?: string
+    phone?: string
+  }): Promise<ResidentVerifyResult> {
+    return apiFetch<ResidentVerifyResult>('verify-resident', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  // Phase 2: Multi-date time slots for stay planner
+  async function fetchAvailableTimesMulti(
+    dates: string[],
+    people: number,
+    residentBookingId?: number
+  ): Promise<MultiDateTimesResult> {
+    return apiFetch<MultiDateTimesResult>('available-times-multi', {
+      method: 'POST',
+      body: JSON.stringify({
+        dates,
+        people,
+        resident_booking_id: residentBookingId,
+      }),
+    })
+  }
+
+  // Phase 2: Batch booking creation
+  async function createBookingsBatch(params: {
+    bookings: StayNightSelection[]
+    name: string
+    email: string
+    phone?: string
+    notes?: string
+    custom_fields?: CustomFieldValue[]
+    resident_booking_id?: number
+    turnstile_token?: string
+  }): Promise<BatchCreateResult> {
+    return apiFetch<BatchCreateResult>('create-bookings-batch', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    })
+  }
+
+  // Phase 2: Mark nights as no table needed
+  async function markNoTable(bookingId: number, dates: string[]): Promise<{ success: boolean }> {
+    return apiFetch<{ success: boolean }>('mark-no-table', {
+      method: 'POST',
+      body: JSON.stringify({ booking_id: bookingId, dates }),
+    })
+  }
+
+  return {
+    fetchOpeningHours, fetchAvailableTimes, createBooking,
+    verifyResident, fetchAvailableTimesMulti, createBookingsBatch, markNoTable,
+  }
 }

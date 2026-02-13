@@ -87,3 +87,63 @@ export type BookingStep =
   | 'guest_details'
   | 'submitting'
   | 'confirmation'
+
+// Phase 2: Resident / Stay Planner types
+
+export interface ResidentInfo {
+  verified: boolean
+  guest_name: string
+  guest_email: string
+  guest_phone: string
+  room: string
+  check_in: string
+  check_out: string
+  nights: string[]
+  booking_id: number
+  occupancy: number
+  group_id: number | null
+}
+
+export interface ResidentVerifyError {
+  verified: false
+  error: string
+}
+
+export type ResidentVerifyResult = ResidentInfo | ResidentVerifyError
+
+export interface StayPeriod {
+  id: string
+  name: string
+  from: string
+  to: string
+  is_special: boolean
+  resident_only: boolean
+  display_message: string | null
+  times: string[]
+}
+
+export interface StayDateData {
+  error: boolean
+  periods: StayPeriod[]
+}
+
+export type MultiDateTimesResult = Record<string, StayDateData>
+
+export interface StayNightSelection {
+  date: string
+  periodId: string
+  periodName: string
+  time: string
+  people: number
+}
+
+export interface BatchBookingResult {
+  date: string
+  success: boolean
+  booking_id?: string
+  error?: string
+}
+
+export interface BatchCreateResult {
+  results: BatchBookingResult[]
+}

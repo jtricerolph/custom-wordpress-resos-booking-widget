@@ -16,18 +16,18 @@ interface HotelGuestSectionProps {
 }
 
 type SectionState =
-  | 'waiting'          // Haven't checked yet or inputs changed
-  | 'checking'         // Auto-check in progress
-  | 'auto_matched'     // Tier 1: email + surname match
+  | 'initial'          // Show Yes/No question (auto-check runs in background)
+  | 'checking'         // User clicked Yes, checking
+  | 'auto_matched'     // Tier 1: auto-matched
   | 'phone_prompt'     // Tier 2: surname only, needs phone verify
   | 'phone_verifying'
   | 'phone_verified'
-  | 'no_match'         // Tier 3: no match found, show subtle link
-  | 'manual_entry'     // User opened manual reference entry
+  | 'manual_entry'     // Tier 3: manual reference entry
   | 'ref_verifying'
   | 'ref_verified'
   | 'ota_detected'
   | 'unverified'
+  | 'declined'         // Guest said "No"
 
 export default function HotelGuestSection({
   theme, phone, date, guestName, guestEmail, guestPhone,
@@ -36,7 +36,7 @@ export default function HotelGuestSection({
   const api = useBookingApi()
   const s = styles(theme)
 
-  const [sectionState, setSectionState] = useState<SectionState>('waiting')
+  const [sectionState, setSectionState] = useState<SectionState>('initial')
   const [match, setMatch] = useState<ResidentMatchResult | null>(null)
   const [phoneInput, setPhoneInput] = useState(guestPhone || '')
   const [refInput, setRefInput] = useState('')
@@ -44,7 +44,7 @@ export default function HotelGuestSection({
   const [otaInternalId, setOtaInternalId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // Refs to avoid stale closures in debounced effect
+  // Refs to avoid stale closures in debounced auto-check
   const apiRef = useRef(api)
   apiRef.current = api
   const callbackRef = useRef(onResidentMatched)
@@ -52,36 +52,30 @@ export default function HotelGuestSection({
   const stateRef = useRef(sectionState)
   stateRef.current = sectionState
 
-  // Track last checked key to avoid redundant calls
   const lastChecked = useRef('')
 
-  // Interactive states where we shouldn't auto-recheck
-  const interactiveStates = ['phone_prompt', 'phone_verifying', 'phone_verified', 'manual_entry', 'ref_verifying', 'ref_verified', 'ota_detected', 'unverified']
-
-  // Auto-check when name/email change (debounced 800ms)
+  // Auto-check silently when name/email are valid (debounced 800ms)
+  // Only fires from 'initial' state — replaces question with match result
   useEffect(() => {
     const name = guestName.trim()
     const email = guestEmail.trim().toLowerCase()
     const checkKey = `${name}|${email}|${date}`
 
-    // Don't auto-check if inputs are incomplete
     if (name.length < 2 || !validateEmail(guestEmail)) return
-
-    // Don't re-check same inputs
     if (checkKey === lastChecked.current) return
-
-    // If in interactive state (user is doing phone/ref verification), don't interrupt
-    if (interactiveStates.includes(stateRef.current)) return
+    if (stateRef.current !== 'initial') return
 
     const timer = setTimeout(async () => {
-      // Re-check interactive state at execution time
-      if (interactiveStates.includes(stateRef.current)) return
+      // Re-check state — user may have clicked Yes/No during debounce
+      if (stateRef.current !== 'initial') return
 
       lastChecked.current = checkKey
-      setSectionState('checking')
 
       try {
         const result = await apiRef.current.checkResident(date, guestName, guestEmail, guestPhone || undefined)
+
+        // Only auto-transition if still in initial state
+        if (stateRef.current !== 'initial') return
 
         if (result.match_tier === 1) {
           setMatch(result)
@@ -90,11 +84,10 @@ export default function HotelGuestSection({
         } else if (result.match_tier === 2) {
           setMatch(result)
           setSectionState(result.phone_on_file ? 'phone_prompt' : 'manual_entry')
-        } else {
-          setSectionState('no_match')
         }
+        // Tier 3: stay in 'initial' — question remains visible for user
       } catch {
-        setSectionState('no_match')
+        // Error: stay in 'initial' — question remains visible
       }
     }, 800)
 
@@ -107,6 +100,33 @@ export default function HotelGuestSection({
       setPhoneInput(guestPhone)
     }
   }, [guestPhone])
+
+  // User clicks "Yes" — immediate check (no debounce)
+  const handleYes = useCallback(async () => {
+    setSectionState('checking')
+    setError(null)
+
+    try {
+      const result = await api.checkResident(date, guestName, guestEmail, guestPhone || undefined)
+
+      if (result.match_tier === 1) {
+        setMatch(result)
+        setSectionState('auto_matched')
+        onResidentMatched(result)
+      } else if (result.match_tier === 2) {
+        setMatch(result)
+        setSectionState(result.phone_on_file ? 'phone_prompt' : 'manual_entry')
+      } else {
+        setSectionState('manual_entry')
+      }
+    } catch {
+      setSectionState('manual_entry')
+    }
+  }, [api, date, guestName, guestEmail, guestPhone, onResidentMatched])
+
+  const handleNo = useCallback(() => {
+    setSectionState('declined')
+  }, [])
 
   const handlePhoneVerify = useCallback(async () => {
     if (!phoneInput.trim()) return
@@ -187,36 +207,37 @@ export default function HotelGuestSection({
     background: theme.background,
   }
 
-  // Waiting or checking: render nothing (check happens silently)
-  if (sectionState === 'waiting' || sectionState === 'checking') {
-    return null
-  }
-
-  // No match: show subtle link to enter reference manually
-  if (sectionState === 'no_match') {
-    return (
-      <div style={{ marginBottom: 16 }}>
-        <button
-          type="button"
-          onClick={() => setSectionState('manual_entry')}
-          style={{
-            background: 'none',
-            border: 'none',
-            fontSize: 13,
-            color: theme.textSecondary,
-            cursor: 'pointer',
-            padding: 0,
-            textDecoration: 'underline',
-          }}
-        >
-          Staying at the hotel? Enter your booking reference
-        </button>
-      </div>
-    )
-  }
+  // Declined — don't show anything
+  if (sectionState === 'declined') return null
 
   return (
     <div style={sectionStyle}>
+      {/* Initial: Yes / No question (auto-check runs silently in background) */}
+      {sectionState === 'initial' && (
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 500, color: theme.text, marginBottom: 12 }}>
+            Are you staying at the hotel?
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" style={s.button} onClick={handleYes}
+              onMouseEnter={(e) => Object.assign((e.target as HTMLElement).style, { borderColor: theme.primary, color: theme.primary })}
+              onMouseLeave={(e) => Object.assign((e.target as HTMLElement).style, { borderColor: theme.border, color: theme.text })}
+            >Yes</button>
+            <button type="button" style={s.button} onClick={handleNo}
+              onMouseEnter={(e) => Object.assign((e.target as HTMLElement).style, { borderColor: theme.primary, color: theme.primary })}
+              onMouseLeave={(e) => Object.assign((e.target as HTMLElement).style, { borderColor: theme.border, color: theme.text })}
+            >No</button>
+          </div>
+        </div>
+      )}
+
+      {/* Checking spinner */}
+      {sectionState === 'checking' && (
+        <div style={{ textAlign: 'center', padding: 8 }}>
+          <div style={s.spinner} />
+        </div>
+      )}
+
       {/* Tier 1: Auto-matched */}
       {(sectionState === 'auto_matched' || sectionState === 'phone_verified' || sectionState === 'ref_verified') && match && (
         <div>
@@ -275,7 +296,7 @@ export default function HotelGuestSection({
         </div>
       )}
 
-      {/* Manual reference entry */}
+      {/* Tier 3: Manual reference entry */}
       {(sectionState === 'manual_entry' || sectionState === 'ref_verifying') && (
         <div>
           <div style={{ fontSize: 14, color: theme.text, marginBottom: 12 }}>
@@ -302,13 +323,6 @@ export default function HotelGuestSection({
               {sectionState === 'ref_verifying' ? '…' : 'Verify'}
             </button>
           </div>
-          <button
-            type="button"
-            style={{ background: 'none', border: 'none', fontSize: 12, color: theme.textSecondary, cursor: 'pointer', marginTop: 8, padding: 0 }}
-            onClick={() => setSectionState('no_match')}
-          >
-            Not staying at hotel
-          </button>
         </div>
       )}
 

@@ -177,6 +177,36 @@ export function useBookingFlow() {
     })
   }, [])
 
+  const goBackToParty = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      step: 'party_size' as BookingStep,
+      allPeriodTimes: {},
+      selectedPeriodId: null,
+      selectedTime: null,
+      activeCustomFields: [],
+      guestDetails: { ...initialGuestDetails },
+      customFieldValues: [],
+      duplicateWarning: null,
+      error: null,
+      loading: false,
+    }))
+  }, [])
+
+  const goBackToTime = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      step: 'time_selection' as BookingStep,
+      selectedTime: null,
+      activeCustomFields: [],
+      guestDetails: { ...initialGuestDetails },
+      customFieldValues: [],
+      duplicateWarning: null,
+      error: null,
+      loading: false,
+    }))
+  }, [])
+
   // Get the selected period name for display (from bookingFlow/times data)
   const selectedPeriodName = state.selectedPeriodId
     ? (state.allPeriodTimes[state.selectedPeriodId]?.name || '')
@@ -198,5 +228,7 @@ export function useBookingFlow() {
     setError,
     setSubmitting,
     resetToDate,
+    goBackToParty,
+    goBackToTime,
   }
 }

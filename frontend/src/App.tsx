@@ -13,6 +13,11 @@ import BookingConfirmation from './components/BookingConfirmation'
 import ResidentBanner from './components/ResidentBanner'
 import StayPlanner from './components/StayPlanner'
 
+function formatDateShort(dateStr: string): string {
+  const d = new Date(dateStr + 'T12:00:00')
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+}
+
 export default function App() {
   const config = getConfig()
   const theme = getTheme(config.colourPreset)
@@ -46,6 +51,8 @@ export default function App() {
     setError,
     setSubmitting,
     resetToDate,
+    goBackToParty,
+    goBackToTime,
   } = useBookingFlow()
 
   // Flow B: Auto-verify resident when bid+gid in URL
@@ -75,8 +82,6 @@ export default function App() {
     setLoading(true)
     try {
       const periods = await api.fetchOpeningHours(date)
-      console.log('[RBW] Opening hours response:', JSON.stringify(periods, null, 2))
-      console.log('[RBW] Periods count:', periods.length, 'IDs:', periods.map((p: { id: string; name: string; resident_only: boolean; display_message: string | null }) => `${p.id} (${p.name}) resident_only=${p.resident_only} msg=${p.display_message}`))
       setDate(date, periods)
     } catch (err) {
       console.error('[RBW] Opening hours fetch error:', err)
@@ -86,20 +91,10 @@ export default function App() {
 
   const handlePeopleSelect = useCallback(async (people: number) => {
     console.log('[RBW] People selected:', people, 'for date:', state.date)
-    // Immediately show ServicePeriods with loading skeletons
     setPeople(people)
 
-    // Fetch all period times in background
     try {
-      console.log('[RBW] Fetching all available times...')
       const result = await api.fetchAllAvailableTimes(state.date!, people)
-      console.log('[RBW] All available times raw response:', JSON.stringify(result, null, 2))
-      const periodIds = Object.keys(result.periods || {})
-      console.log('[RBW] Periods with times:', periodIds.length, 'IDs:', periodIds)
-      periodIds.forEach(id => {
-        const p = result.periods[id]
-        console.log(`[RBW]   Period ${id}: ${p.times.length} times, ${p.activeCustomFields.length} custom fields`)
-      })
       setAllPeriodTimes(result.periods)
     } catch (err) {
       console.error('[RBW] Available times fetch error:', err)
@@ -151,7 +146,6 @@ export default function App() {
         turnstileToken = turnstileResponse.value
       }
 
-      // Combine notes: user notes + group notes
       const combinedNotes = [state.guestDetails.notes, groupNotes].filter(Boolean).join(' | ') || undefined
 
       const result = await api.createBooking({
@@ -173,7 +167,6 @@ export default function App() {
         setError(null)
         if (window.turnstile) window.turnstile.reset()
       } else if ('success' in result && result.success) {
-        // Create additional bookings for selected multi-night dates
         if (multiNightDates.length > 0 && state.selectedPeriodId) {
           for (const nightDate of multiNightDates) {
             try {
@@ -202,18 +195,40 @@ export default function App() {
     }
   }, [state, api, groupNotes, residentMatch, multiNightDates, setSubmitting, setDuplicateWarning, setBookingConfirmed, setError])
 
-  // Section visibility
-  const showPartySize = state.step !== 'date'
-  const showTimePeriods = state.step !== 'date' && state.step !== 'party_size'
-  const showGuestForm = state.step === 'guest_details' || state.step === 'submitting'
-  const showConfirmation = state.step === 'confirmation'
+  const turnstileSiteKey = window.rbwConfig?.turnstileSiteKey || ''
 
-  const sectionTransition: CSSProperties = {
-    overflow: 'hidden',
-    transition: 'opacity 0.3s ease, max-height 0.4s ease',
+  // ---- Summary bar styles ----
+  const summaryBar: CSSProperties = {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    padding: '10px 14px',
+    background: theme.surface,
+    borderRadius: 8,
+    marginBottom: 16,
+    border: `1px solid ${theme.border}`,
   }
 
-  const turnstileSiteKey = window.rbwConfig?.turnstileSiteKey || ''
+  const chipStyle: CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    padding: '4px 10px',
+    borderRadius: 16,
+    border: `1px solid ${theme.border}`,
+    background: theme.background,
+    fontSize: 13,
+    fontWeight: 500,
+    color: theme.text,
+    cursor: 'pointer',
+    transition: 'border-color 0.15s ease',
+  }
+
+  const dotStyle: CSSProperties = {
+    color: theme.textSecondary,
+    fontSize: 12,
+  }
 
   // ---- Flow B: Resident Stay Planner ----
   if (urlParams.bid) {
@@ -257,7 +272,6 @@ export default function App() {
               resident={residentInfo}
               defaultPeople={urlParams.people || residentInfo.occupancy || 2}
               onDone={() => {
-                // Clear URL params and reload as regular flow
                 window.location.href = window.location.pathname
               }}
             />
@@ -269,7 +283,7 @@ export default function App() {
 
   // ---- Flow A: Regular Booking ----
 
-  if (showConfirmation && state.bookingId && state.date && state.selectedTime && state.people) {
+  if (state.step === 'confirmation' && state.bookingId && state.date && state.selectedTime && state.people) {
     return (
       <div style={s.container}>
         <BookingConfirmation
@@ -291,25 +305,70 @@ export default function App() {
     <div style={s.container}>
       <style>{`@keyframes rbw-spin { to { transform: rotate(360deg) } } @keyframes rbw-pulse { 0%,100% { opacity: 0.4 } 50% { opacity: 0.15 } }`}</style>
 
-      {/* Date Picker */}
-      <div style={s.section}>
-        <div style={s.sectionTitle}>Select a Date</div>
-        <DatePicker
-          theme={theme}
-          maxBookingWindow={config.maxBookingWindow}
-          selectedDate={state.date}
-          onDateSelect={handleDateSelect}
-        />
-        {state.loading && state.step === 'date' && (
-          <div style={{ textAlign: 'center', padding: 8 }}>
-            <div style={s.spinner} />
-          </div>
-        )}
-      </div>
+      {/* Summary bar — shows completed selections, clickable to go back */}
+      {state.step !== 'date' && state.date && (
+        <div style={summaryBar}>
+          <button
+            type="button"
+            style={chipStyle}
+            onClick={resetToDate}
+            onMouseEnter={(e) => (e.currentTarget.style.borderColor = theme.primary)}
+            onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.border)}
+          >
+            {formatDateShort(state.date)}
+          </button>
+          {state.people && state.step !== 'party_size' && (
+            <>
+              <span style={dotStyle}>&middot;</span>
+              <button
+                type="button"
+                style={chipStyle}
+                onClick={goBackToParty}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = theme.primary)}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.border)}
+              >
+                {state.people} {state.people === 1 ? 'guest' : 'guests'}
+              </button>
+            </>
+          )}
+          {state.selectedTime && (state.step === 'guest_details' || state.step === 'submitting') && (
+            <>
+              <span style={dotStyle}>&middot;</span>
+              <button
+                type="button"
+                style={chipStyle}
+                onClick={goBackToTime}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = theme.primary)}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = theme.border)}
+              >
+                {selectedPeriodName ? `${selectedPeriodName} · ` : ''}{state.selectedTime}
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
-      {/* Party Size */}
-      {showPartySize && (
-        <div style={{ ...s.section, ...sectionTransition }}>
+      {/* Step: Date */}
+      {state.step === 'date' && (
+        <div style={s.section}>
+          <div style={s.sectionTitle}>Select a Date</div>
+          <DatePicker
+            theme={theme}
+            maxBookingWindow={config.maxBookingWindow}
+            selectedDate={state.date}
+            onDateSelect={handleDateSelect}
+          />
+          {state.loading && (
+            <div style={{ textAlign: 'center', padding: 8 }}>
+              <div style={s.spinner} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Step: Party Size */}
+      {state.step === 'party_size' && (
+        <div style={s.section}>
           <PartySize
             theme={theme}
             maxPartySize={config.maxPartySize}
@@ -320,11 +379,11 @@ export default function App() {
         </div>
       )}
 
-      {/* Service Periods + Time Slots */}
-      {showTimePeriods && state.date && state.people && (
-        <div style={{ ...s.section, ...sectionTransition }}>
+      {/* Step: Time Selection */}
+      {state.step === 'time_selection' && state.date && state.people && (
+        <div style={s.section}>
           <div style={s.sectionTitle}>Choose a Time</div>
-          {state.error && state.step === 'time_selection' && (
+          {state.error && (
             <div style={{ color: theme.error, fontSize: 13, marginBottom: 8 }} role="alert">
               {state.error}
             </div>
@@ -341,16 +400,16 @@ export default function App() {
         </div>
       )}
 
-      {/* Guest Form */}
-      {showGuestForm && state.date && state.selectedTime && state.people && (
-        <div style={{ ...s.section, ...sectionTransition }}>
+      {/* Step: Guest Details */}
+      {(state.step === 'guest_details' || state.step === 'submitting') && state.date && state.selectedTime && state.people && (
+        <div style={s.section}>
           <div style={s.sectionTitle}>Your Details</div>
           <GuestForm
             theme={theme}
             phone={config.phone}
-            date={state.date!}
-            people={state.people!}
-            selectedTime={state.selectedTime!}
+            date={state.date}
+            people={state.people}
+            selectedTime={state.selectedTime}
             selectedPeriodName={selectedPeriodName}
             customFields={state.activeCustomFields}
             guestDetails={state.guestDetails}

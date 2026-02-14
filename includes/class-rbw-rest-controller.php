@@ -766,6 +766,29 @@ class RBW_REST_Controller extends WP_REST_Controller {
         $phone = $request->get_param('phone') ?: '';
 
         $result = RBW_Resident_Matcher::match_guest($date, $name, $email, $phone);
+
+        // TEMPORARY DEBUG: include staying list summary in response
+        $staying = RBW_Resident_Matcher::get_staying_list($date);
+        $debug_staying = array();
+        if (is_array($staying)) {
+            foreach ($staying as $booking) {
+                $primary = RBW_NewBook_Client::get_primary_guest($booking);
+                $debug_staying[] = array(
+                    'booking_id'  => $booking['booking_id'] ?? '?',
+                    'booking_ref' => $booking['booking_reference_id'] ?? '',
+                    'site_name'   => $booking['site_name'] ?? '',
+                    'has_guests'  => !empty($booking['guests']),
+                    'guest_count' => is_array($booking['guests'] ?? null) ? count($booking['guests']) : 0,
+                    'primary_last'  => $primary ? ($primary['lastname'] ?? '') : 'NO_PRIMARY',
+                    'primary_first' => $primary ? ($primary['firstname'] ?? '') : '',
+                    'primary_email' => $primary ? RBW_NewBook_Client::get_guest_contact($primary, 'email') : '',
+                    'has_contacts'  => $primary ? !empty($primary['contact_details']) : false,
+                );
+            }
+        }
+        $result['_debug_staying_count'] = is_array($staying) ? count($staying) : ($staying === false ? 'ERROR' : 'EMPTY');
+        $result['_debug_staying'] = $debug_staying;
+
         return new WP_REST_Response($result, 200);
     }
 

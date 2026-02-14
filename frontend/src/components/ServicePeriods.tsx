@@ -27,6 +27,8 @@ export default function ServicePeriods({
 
   const hasPreloadedTimes = Object.keys(allPeriodTimes).length > 0
 
+  console.log('[RBW] ServicePeriods render — hasPreloadedTimes:', hasPreloadedTimes, 'periods:', periods.length, 'allPeriodTimes keys:', Object.keys(allPeriodTimes))
+
   // Auto-expand the last period that has available times
   useEffect(() => {
     if (periods.length > 0 && !expandedId) {
@@ -115,6 +117,7 @@ export default function ServicePeriods({
         const hasCloseoutMarker = period.resident_only || !!period.display_message
         const notInBookingFlow = hasPreloadedTimes && !preloaded
         const isClosed = hasCloseoutMarker || notInBookingFlow
+        console.log(`[RBW]   Period "${period.name}" (${period.id}): marker=${hasCloseoutMarker} notInFlow=${notInBookingFlow} closed=${isClosed} times=${preloaded?.times?.length ?? 'none'}`)
 
         return (
           <div key={period.id} style={s.period} role="region" aria-label={period.name}>

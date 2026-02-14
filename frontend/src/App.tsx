@@ -71,24 +71,38 @@ export default function App() {
   }, [urlParams.bid, urlParams.gid, api])
 
   const handleDateSelect = useCallback(async (date: string) => {
+    console.log('[RBW] Date selected:', date)
     setLoading(true)
     try {
       const periods = await api.fetchOpeningHours(date)
+      console.log('[RBW] Opening hours response:', JSON.stringify(periods, null, 2))
+      console.log('[RBW] Periods count:', periods.length, 'IDs:', periods.map((p: { id: string; name: string; resident_only: boolean; display_message: string | null }) => `${p.id} (${p.name}) resident_only=${p.resident_only} msg=${p.display_message}`))
       setDate(date, periods)
     } catch (err) {
+      console.error('[RBW] Opening hours fetch error:', err)
       setError(err instanceof Error ? err.message : 'Failed to load opening hours')
     }
   }, [api, setDate, setLoading, setError])
 
   const handlePeopleSelect = useCallback(async (people: number) => {
+    console.log('[RBW] People selected:', people, 'for date:', state.date)
     // Immediately show ServicePeriods with loading skeletons
     setPeople(people)
 
     // Fetch all period times in background
     try {
+      console.log('[RBW] Fetching all available times...')
       const result = await api.fetchAllAvailableTimes(state.date!, people)
+      console.log('[RBW] All available times raw response:', JSON.stringify(result, null, 2))
+      const periodIds = Object.keys(result.periods || {})
+      console.log('[RBW] Periods with times:', periodIds.length, 'IDs:', periodIds)
+      periodIds.forEach(id => {
+        const p = result.periods[id]
+        console.log(`[RBW]   Period ${id}: ${p.times.length} times, ${p.activeCustomFields.length} custom fields`)
+      })
       setAllPeriodTimes(result.periods)
     } catch (err) {
+      console.error('[RBW] Available times fetch error:', err)
       setError(err instanceof Error ? err.message : 'Failed to load available times')
     }
   }, [api, state.date, setPeople, setAllPeriodTimes, setError])

@@ -16,6 +16,8 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
   const { restUrl, nonce } = getConfig()
   const url = restUrl + endpoint
 
+  console.log(`[RBW API] ${options.method || 'GET'} ${url}`, options.body ? JSON.parse(options.body as string) : '')
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
@@ -30,10 +32,13 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
+    console.error(`[RBW API] ${endpoint} failed:`, response.status, body)
     throw new Error(body.error || `Request failed (${response.status})`)
   }
 
-  return response.json()
+  const data = await response.json()
+  console.log(`[RBW API] ${endpoint} response:`, data)
+  return data
 }
 
 export function useBookingApi() {

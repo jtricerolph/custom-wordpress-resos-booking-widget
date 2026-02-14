@@ -78,9 +78,9 @@ class RBW_Admin {
                     <tr>
                         <th scope="row"><label for="rbw_resos_api_key">ResOS API Key</label></th>
                         <td>
-                            <input type="text" id="rbw_resos_api_key" name="rbw_resos_api_key"
+                            <input type="password" id="rbw_resos_api_key" name="rbw_resos_api_key"
                                 value="<?php echo esc_attr(get_option('rbw_resos_api_key')); ?>"
-                                class="regular-text" />
+                                class="regular-text" autocomplete="off" />
                             <button type="button" class="button" id="rbw-test-resos">Test Connection</button>
                             <span id="rbw-test-resos-result"></span>
                         </td>
@@ -99,9 +99,9 @@ class RBW_Admin {
                     </tr>
                     <tr>
                         <th scope="row"><label for="rbw_newbook_api_key">NewBook API Key</label></th>
-                        <td><input type="text" id="rbw_newbook_api_key" name="rbw_newbook_api_key"
+                        <td><input type="password" id="rbw_newbook_api_key" name="rbw_newbook_api_key"
                             value="<?php echo esc_attr(get_option('rbw_newbook_api_key')); ?>"
-                            class="regular-text" /></td>
+                            class="regular-text" autocomplete="off" /></td>
                     </tr>
                     <tr>
                         <th scope="row"><label for="rbw_newbook_region">NewBook Region</label></th>

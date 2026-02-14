@@ -6,7 +6,7 @@ import type {
   GuestDetails,
   CustomFieldValue,
   DuplicateCheckResult,
-  TimeSlotResponse,
+  PeriodData,
 } from '../types'
 
 export interface BookingFlowState {
@@ -14,7 +14,7 @@ export interface BookingFlowState {
   date: string | null
   people: number | null
   periods: OpeningHourPeriod[]
-  allPeriodTimes: Record<string, TimeSlotResponse>
+  allPeriodTimes: Record<string, PeriodData>
   selectedPeriodId: string | null
   selectedTime: string | null
   activeCustomFields: CustomFieldDef[]
@@ -90,7 +90,7 @@ export function useBookingFlow() {
     }))
   }, [])
 
-  const setAllPeriodTimes = useCallback((periodTimes: Record<string, TimeSlotResponse>) => {
+  const setAllPeriodTimes = useCallback((periodTimes: Record<string, PeriodData>) => {
     setState(prev => ({ ...prev, allPeriodTimes: periodTimes }))
   }, [])
 
@@ -177,8 +177,10 @@ export function useBookingFlow() {
     })
   }, [])
 
-  // Get the selected period name for display
-  const selectedPeriodName = state.periods.find(p => p.id === state.selectedPeriodId)?.name || ''
+  // Get the selected period name for display (from bookingFlow/times data)
+  const selectedPeriodName = state.selectedPeriodId
+    ? (state.allPeriodTimes[state.selectedPeriodId]?.name || '')
+    : ''
 
   return {
     state,

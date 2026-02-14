@@ -1,17 +1,14 @@
 import { useState, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import type { ThemeColors } from '../utils/theme'
-import type { OpeningHourPeriod, CustomFieldDef, TimeSlotResponse } from '../types'
+import type { CustomFieldDef, PeriodData } from '../types'
 import TimeSlots from './TimeSlots'
 import ClosedMessage from './ClosedMessage'
 
 interface ServicePeriodsProps {
   theme: ThemeColors
   phone: string
-  periods: OpeningHourPeriod[]
-  allPeriodTimes: Record<string, TimeSlotResponse>
-  date: string
-  people: number
+  allPeriodTimes: Record<string, PeriodData>
   selectedPeriodId: string | null
   selectedTime: string | null
   onPeriodSelect: (periodId: string) => void
@@ -19,35 +16,28 @@ interface ServicePeriodsProps {
 }
 
 export default function ServicePeriods({
-  theme, phone, periods, allPeriodTimes,
+  theme, phone, allPeriodTimes,
   selectedPeriodId, selectedTime,
   onPeriodSelect, onTimeSelect,
 }: ServicePeriodsProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const hasPreloadedTimes = Object.keys(allPeriodTimes).length > 0
+  // Build display list from bookingFlow/times data (only active periods)
+  const periodEntries = Object.entries(allPeriodTimes)
+  const isLoading = periodEntries.length === 0
 
-  console.log('[RBW] ServicePeriods render — hasPreloadedTimes:', hasPreloadedTimes, 'periods:', periods.length, 'allPeriodTimes keys:', Object.keys(allPeriodTimes))
+  console.log('[RBW] ServicePeriods render — periods:', periodEntries.length, 'IDs:', periodEntries.map(([id]) => id))
 
-  // Auto-expand the last period that has available times
+  // Auto-expand the last period that has available times when data arrives
   useEffect(() => {
-    if (periods.length > 0 && !expandedId) {
-      if (hasPreloadedTimes) {
-        // Find the last period that has times in the preloaded data
-        const withTimes = periods.filter(p => {
-          const data = allPeriodTimes[p.id]
-          return data && data.times.length > 0
-        })
-        const target = withTimes.length > 0 ? withTimes[withTimes.length - 1] : periods[periods.length - 1]
-        setExpandedId(target.id)
-      } else {
-        // Fallback: find last non-closed period
-        const available = periods.filter(p => !p.resident_only && !p.display_message)
-        const target = available.length > 0 ? available[available.length - 1] : periods[periods.length - 1]
-        setExpandedId(target.id)
-      }
+    if (periodEntries.length === 0) {
+      setExpandedId(null)
+      return
     }
-  }, [periods, expandedId, hasPreloadedTimes, allPeriodTimes])
+    const withTimes = periodEntries.filter(([, data]) => data.times.length > 0)
+    const target = withTimes.length > 0 ? withTimes[withTimes.length - 1] : periodEntries[periodEntries.length - 1]
+    setExpandedId(target[0])
+  }, [allPeriodTimes])
 
   function togglePeriod(periodId: string) {
     if (expandedId === periodId) {
@@ -103,32 +93,43 @@ export default function ServicePeriods({
       color: theme.textSecondary,
       marginLeft: 8,
     },
+    loadingSkeleton: {
+      height: 48,
+      borderRadius: 8,
+      marginBottom: 8,
+      background: theme.surface,
+      animation: 'rbw-pulse 1.5s ease-in-out infinite',
+    },
+  }
+
+  // Show loading skeletons while waiting for bookingFlow/times
+  if (isLoading) {
+    return (
+      <div style={s.wrapper}>
+        <div style={s.loadingSkeleton} />
+        <div style={s.loadingSkeleton} />
+      </div>
+    )
   }
 
   return (
     <div style={s.wrapper}>
-      {periods.map(period => {
-        const isExpanded = expandedId === period.id
-        const preloaded = allPeriodTimes[period.id]
+      {periodEntries.map(([periodId, period]) => {
+        const isExpanded = expandedId === periodId
+        const isClosed = period.resident_only || !!period.display_message
 
-        // A period is closed if:
-        // 1. It has closeout markers (resident_only or display_message from openingHours), OR
-        // 2. bookingFlow/times didn't include it (not in allPeriodTimes) when we have preloaded data
-        const hasCloseoutMarker = period.resident_only || !!period.display_message
-        const notInBookingFlow = hasPreloadedTimes && !preloaded
-        const isClosed = hasCloseoutMarker || notInBookingFlow
-        console.log(`[RBW]   Period "${period.name}" (${period.id}): marker=${hasCloseoutMarker} notInFlow=${notInBookingFlow} closed=${isClosed} times=${preloaded?.times?.length ?? 'none'}`)
+        console.log(`[RBW]   Period "${period.name}" (${periodId}): closed=${isClosed} times=${period.times.length}`)
 
         return (
-          <div key={period.id} style={s.period} role="region" aria-label={period.name}>
+          <div key={periodId} style={s.period} role="region" aria-label={period.name}>
             <div
               role="button"
               tabIndex={0}
               aria-expanded={isExpanded}
-              aria-controls={`rbw-period-${period.id}`}
+              aria-controls={`rbw-period-${periodId}`}
               style={{ ...s.header, ...(isExpanded ? s.headerExpanded : {}) }}
-              onClick={() => togglePeriod(period.id)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePeriod(period.id) } }}
+              onClick={() => togglePeriod(periodId)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); togglePeriod(periodId) } }}
             >
               <span style={s.periodName}>
                 {period.name}
@@ -141,7 +142,7 @@ export default function ServicePeriods({
               </span>
             </div>
             {isExpanded && (
-              <div id={`rbw-period-${period.id}`} style={s.content} role="region">
+              <div id={`rbw-period-${periodId}`} style={s.content} role="region">
                 {isClosed ? (
                   <ClosedMessage
                     theme={theme}
@@ -152,10 +153,10 @@ export default function ServicePeriods({
                 ) : (
                   <TimeSlots
                     theme={theme}
-                    times={preloaded?.times || []}
-                    selectedTime={selectedPeriodId === period.id ? selectedTime : null}
-                    loading={!hasPreloadedTimes}
-                    onTimeSelect={(time) => handleTimeSelect(period.id, time)}
+                    times={period.times}
+                    selectedTime={selectedPeriodId === periodId ? selectedTime : null}
+                    loading={false}
+                    onTimeSelect={(time) => handleTimeSelect(periodId, time)}
                   />
                 )}
               </div>

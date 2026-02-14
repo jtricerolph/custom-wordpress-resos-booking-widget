@@ -332,10 +332,7 @@ export default function App() {
           <ServicePeriods
             theme={theme}
             phone={config.phone}
-            periods={state.periods}
             allPeriodTimes={state.allPeriodTimes}
-            date={state.date}
-            people={state.people}
             selectedPeriodId={state.selectedPeriodId}
             selectedTime={state.selectedTime}
             onPeriodSelect={handlePeriodSelect}

@@ -269,7 +269,15 @@ class RBW_REST_Controller extends WP_REST_Controller {
                     }));
                 }
 
+                // Parse closeout markers from period name
+                $parsed = RBW_Closeout_Parser::parse($item['name'] ?? '');
+
                 $periods[$id] = array(
+                    'name'               => $parsed['clean_name'],
+                    'from'               => $item['from'] ?? '',
+                    'to'                 => $item['to'] ?? '',
+                    'resident_only'      => $parsed['resident_only'],
+                    'display_message'    => $parsed['display_message'],
                     'times'              => $times,
                     'activeCustomFields' => $custom_fields,
                 );

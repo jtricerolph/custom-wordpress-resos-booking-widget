@@ -53,8 +53,18 @@ export interface TimeSlotResponse {
   activeCustomFields: CustomFieldDef[]
 }
 
+export interface PeriodData {
+  name: string
+  from: string
+  to: string
+  resident_only: boolean
+  display_message: string | null
+  times: string[]
+  activeCustomFields: CustomFieldDef[]
+}
+
 export interface AllPeriodsTimesResponse {
-  periods: Record<string, TimeSlotResponse>
+  periods: Record<string, PeriodData>
 }
 
 export interface DuplicateCheckResult {

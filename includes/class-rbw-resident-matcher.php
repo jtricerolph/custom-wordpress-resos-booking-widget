@@ -72,15 +72,23 @@ class RBW_Resident_Matcher {
         $guest_email = strtolower(trim($email));
         $guest_phone_norm = RBW_Resident_Lookup::normalise_phone($phone);
 
+        error_log("[RBW Matcher] Matching: name='{$name}' parsed_last='{$guest_lastname}' parsed_first='{$guest_firstname}' email='{$guest_email}' | Staying list: " . count($staying) . " bookings");
+
         $surname_matches = array();
         $email_matches = array();
+        $skipped_no_guest = 0;
 
         foreach ($staying as $booking) {
             $primary = RBW_NewBook_Client::get_primary_guest($booking);
-            if (!$primary) continue;
+            if (!$primary) {
+                $skipped_no_guest++;
+                continue;
+            }
 
             $nb_lastname = strtolower(trim($primary['lastname'] ?? ''));
             $nb_email = strtolower(trim(RBW_NewBook_Client::get_guest_contact($primary, 'email')));
+
+            error_log("[RBW Matcher]   Booking #{$booking['booking_id']}: nb_last='{$nb_lastname}' nb_email='{$nb_email}' | surname_eq=" . ($nb_lastname === $guest_lastname ? 'Y' : 'N') . " email_eq=" . ($nb_email === $guest_email ? 'Y' : 'N'));
 
             // Check surname match
             $surname_match = !empty($nb_lastname) && !empty($guest_lastname) && $nb_lastname === $guest_lastname;
@@ -100,6 +108,8 @@ class RBW_Resident_Matcher {
                 return self::build_match_result(1, $booking, $primary, $date);
             }
         }
+
+        error_log("[RBW Matcher] Loop done: surname_matches=" . count($surname_matches) . " email_matches=" . count($email_matches) . " skipped_no_guest={$skipped_no_guest}");
 
         // Tier 2: Surname matches but email doesn't — phone verification needed
         if (!empty($surname_matches)) {

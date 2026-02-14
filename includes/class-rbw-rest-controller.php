@@ -272,10 +272,18 @@ class RBW_REST_Controller extends WP_REST_Controller {
                 // Parse closeout markers from period name
                 $parsed = RBW_Closeout_Parser::parse($item['name'] ?? '');
 
+                // Derive from/to from available times if not in API response
+                $from = $item['from'] ?? '';
+                $to   = $item['to'] ?? '';
+                if (empty($from) && !empty($times)) {
+                    $from = $times[0];
+                    $to   = end($times);
+                }
+
                 $periods[$id] = array(
                     'name'               => $parsed['clean_name'],
-                    'from'               => $item['from'] ?? '',
-                    'to'                 => $item['to'] ?? '',
+                    'from'               => $from,
+                    'to'                 => $to,
                     'resident_only'      => $parsed['resident_only'],
                     'display_message'    => $parsed['display_message'],
                     'times'              => $times,

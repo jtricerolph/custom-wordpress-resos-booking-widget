@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import type { CSSProperties } from 'react'
 import type { ThemeColors } from '../utils/theme'
 import type { CustomFieldDef, PeriodData } from '../types'
@@ -15,7 +15,7 @@ interface ServicePeriodsProps {
   onTimeSelect: (time: string, customFields: CustomFieldDef[]) => void
 }
 
-export default function ServicePeriods({
+export default memo(function ServicePeriods({
   theme, phone, allPeriodTimes,
   selectedPeriodId, selectedTime,
   onPeriodSelect, onTimeSelect,
@@ -26,8 +26,6 @@ export default function ServicePeriods({
   const periodEntries = Object.entries(allPeriodTimes)
   const isLoading = periodEntries.length === 0
 
-  console.log('[RBW] ServicePeriods render — periods:', periodEntries.length, 'IDs:', periodEntries.map(([id]) => id))
-
   // Auto-expand the last period that has available times when data arrives
   useEffect(() => {
     if (periodEntries.length === 0) {
@@ -37,6 +35,7 @@ export default function ServicePeriods({
     const withTimes = periodEntries.filter(([, data]) => data.times.length > 0)
     const target = withTimes.length > 0 ? withTimes[withTimes.length - 1] : periodEntries[periodEntries.length - 1]
     setExpandedId(target[0])
+    console.log('[RBW] ServicePeriods data loaded:', periodEntries.length, 'periods', periodEntries.map(([id, d]) => `${d.name} (${id}): ${d.times.length} times`))
   }, [allPeriodTimes])
 
   function togglePeriod(periodId: string) {
@@ -118,8 +117,6 @@ export default function ServicePeriods({
         const isExpanded = expandedId === periodId
         const isClosed = period.resident_only || !!period.display_message
 
-        console.log(`[RBW]   Period "${period.name}" (${periodId}): closed=${isClosed} times=${period.times.length}`)
-
         return (
           <div key={periodId} style={s.period} role="region" aria-label={period.name}>
             <div
@@ -134,9 +131,11 @@ export default function ServicePeriods({
               <span style={s.periodName}>
                 {period.name}
               </span>
-              <span style={s.periodTime}>
-                {period.from} – {period.to}
-              </span>
+              {(period.from || period.to) && (
+                <span style={s.periodTime}>
+                  {period.from} – {period.to}
+                </span>
+              )}
               <span style={{ ...s.chevron, transform: isExpanded ? 'rotate(180deg)' : 'rotate(0)' }} aria-hidden="true">
                 ▼
               </span>
@@ -166,4 +165,4 @@ export default function ServicePeriods({
       })}
     </div>
   )
-}
+})

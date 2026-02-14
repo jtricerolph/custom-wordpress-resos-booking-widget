@@ -7,10 +7,10 @@ export default defineConfig({
     outDir: 'dist',
     rollupOptions: {
       output: {
-        // Single JS + CSS file (no code splitting)
-        manualChunks: undefined,
+        // IIFE wraps everything in a self-executing function to avoid
+        // global scope pollution (prevents conflicts with jQuery $ on WordPress)
+        format: 'iife',
         entryFileNames: 'assets/rbw-widget.js',
-        chunkFileNames: 'assets/rbw-widget.js',
         assetFileNames: 'assets/rbw-widget.[ext]',
       },
     },

@@ -57,6 +57,7 @@ export function useBookingFlow() {
       date,
       periods,
       step: 'party_size',
+      loading: false,
       // Reset downstream
       people: null,
       allPeriodTimes: {},
@@ -71,12 +72,13 @@ export function useBookingFlow() {
     }))
   }, [])
 
-  const setPeople = useCallback((people: number, periodTimes?: Record<string, TimeSlotResponse>) => {
+  const setPeople = useCallback((people: number) => {
     setState(prev => ({
       ...prev,
       people,
       step: 'time_selection',
-      allPeriodTimes: periodTimes || {},
+      allPeriodTimes: {},
+      loading: false,
       // Reset downstream
       selectedPeriodId: null,
       selectedTime: null,
@@ -86,6 +88,10 @@ export function useBookingFlow() {
       duplicateWarning: null,
       error: null,
     }))
+  }, [])
+
+  const setAllPeriodTimes = useCallback((periodTimes: Record<string, TimeSlotResponse>) => {
+    setState(prev => ({ ...prev, allPeriodTimes: periodTimes }))
   }, [])
 
   const setSelectedPeriod = useCallback((periodId: string) => {
@@ -179,6 +185,7 @@ export function useBookingFlow() {
     selectedPeriodName,
     setDate,
     setPeople,
+    setAllPeriodTimes,
     setSelectedPeriod,
     setSelectedTime,
     setGuestDetails,

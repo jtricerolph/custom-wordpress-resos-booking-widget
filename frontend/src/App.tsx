@@ -35,6 +35,7 @@ export default function App() {
     selectedPeriodName,
     setDate,
     setPeople,
+    setAllPeriodTimes,
     setSelectedPeriod,
     setSelectedTime,
     setGuestDetails,
@@ -80,16 +81,17 @@ export default function App() {
   }, [api, setDate, setLoading, setError])
 
   const handlePeopleSelect = useCallback(async (people: number) => {
-    setLoading(true)
+    // Immediately show ServicePeriods with loading skeletons
+    setPeople(people)
+
+    // Fetch all period times in background
     try {
       const result = await api.fetchAllAvailableTimes(state.date!, people)
-      setPeople(people, result.periods)
+      setAllPeriodTimes(result.periods)
     } catch (err) {
-      // Fall back: set people without pre-loaded times (ServicePeriods will lazy-load)
-      setPeople(people)
       setError(err instanceof Error ? err.message : 'Failed to load available times')
     }
-  }, [api, state.date, setPeople, setLoading, setError])
+  }, [api, state.date, setPeople, setAllPeriodTimes, setError])
 
   const handlePeriodSelect = useCallback((periodId: string) => {
     setSelectedPeriod(periodId)
@@ -301,11 +303,6 @@ export default function App() {
             selected={state.people}
             onSelect={handlePeopleSelect}
           />
-          {state.loading && state.step === 'party_size' && (
-            <div style={{ textAlign: 'center', padding: 8 }}>
-              <div style={s.spinner} />
-            </div>
-          )}
         </div>
       )}
 
@@ -313,6 +310,11 @@ export default function App() {
       {showTimePeriods && state.date && state.people && (
         <div style={{ ...s.section, ...sectionTransition }}>
           <div style={s.sectionTitle}>Choose a Time</div>
+          {state.error && state.step === 'time_selection' && (
+            <div style={{ color: theme.error, fontSize: 13, marginBottom: 8 }} role="alert">
+              {state.error}
+            </div>
+          )}
           <ServicePeriods
             theme={theme}
             phone={config.phone}
